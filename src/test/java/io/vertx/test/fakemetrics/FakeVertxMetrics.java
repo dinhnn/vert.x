@@ -30,17 +30,17 @@ import io.vertx.core.net.NetClientOptions;
 import io.vertx.core.net.NetServer;
 import io.vertx.core.net.NetServerOptions;
 import io.vertx.core.net.SocketAddress;
-import io.vertx.core.spi.metrics.DatagramSocketMetrics;
-import io.vertx.core.spi.metrics.EventBusMetrics;
-import io.vertx.core.spi.metrics.HttpClientMetrics;
-import io.vertx.core.spi.metrics.HttpServerMetrics;
-import io.vertx.core.spi.metrics.TCPMetrics;
-import io.vertx.core.spi.metrics.VertxMetrics;
+import io.vertx.core.spi.metrics.*;
+
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * @author <a href="mailto:julien@julienviet.com">Julien Viet</a>
  */
 public class FakeVertxMetrics extends FakeMetricsBase implements VertxMetrics {
+
+  public static AtomicReference<EventBus> eventBus = new AtomicReference<>();
 
   public FakeVertxMetrics(Vertx vertx) {
     super(vertx);
@@ -78,7 +78,7 @@ public class FakeVertxMetrics extends FakeMetricsBase implements VertxMetrics {
   public TCPMetrics<?> createMetrics(NetServer server, SocketAddress localAddress, NetServerOptions options) {
     return new TCPMetrics<Object>() {
 
-      public Object connected(SocketAddress remoteAddress) {
+      public Object connected(SocketAddress remoteAddress, String remoteName) {
         return null;
       }
 
@@ -106,7 +106,7 @@ public class FakeVertxMetrics extends FakeMetricsBase implements VertxMetrics {
   public TCPMetrics<?> createMetrics(NetClient client, NetClientOptions options) {
     return new TCPMetrics<Object>() {
 
-      public Object connected(SocketAddress remoteAddress) {
+      public Object connected(SocketAddress remoteAddress, String remoteName) {
         return null;
       }
 
@@ -132,11 +132,20 @@ public class FakeVertxMetrics extends FakeMetricsBase implements VertxMetrics {
   }
 
   public DatagramSocketMetrics createMetrics(DatagramSocket socket, DatagramSocketOptions options) {
-    throw new UnsupportedOperationException();
+    return new FakeDatagramSocketMetrics(socket);
+  }
+
+  @Override
+  public <P> PoolMetrics<?> createMetrics(P pool, String poolName, int maxPoolSize) {
+    return new FakeThreadPoolMetrics(poolName, maxPoolSize);
   }
 
   public boolean isEnabled() {
-    throw new UnsupportedOperationException();
+    return true;
   }
 
+  @Override
+  public void eventBusInitialized(EventBus bus) {
+    this.eventBus.set(bus);
+  }
 }

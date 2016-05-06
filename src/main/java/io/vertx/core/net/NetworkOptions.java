@@ -19,7 +19,6 @@ package io.vertx.core.net;
 import io.vertx.codegen.annotations.DataObject;
 import io.vertx.core.impl.Arguments;
 import io.vertx.core.json.JsonObject;
-import io.vertx.core.net.impl.SocketDefaults;
 
 
 /**
@@ -31,17 +30,17 @@ public abstract class NetworkOptions {
   /**
    * The default value of TCP send buffer size
    */
-  public static final int DEFAULT_SEND_BUFFER_SIZE = SocketDefaults.instance.getTcpSendBufferSize();
+  public static final int DEFAULT_SEND_BUFFER_SIZE = -1;
 
   /**
    * The default value of TCP receive buffer size
    */
-  public static final int DEFAULT_RECEIVE_BUFFER_SIZE = SocketDefaults.instance.getTcpReceiveBufferSize();
+  public static final int DEFAULT_RECEIVE_BUFFER_SIZE = -1;
 
   /**
    * The default value of traffic class
    */
-  public static final int DEFAULT_TRAFFIC_CLASS = SocketDefaults.instance.getTrafficClass();
+  public static final int DEFAULT_TRAFFIC_CLASS = -1;
 
   /**
    * The default value of reuse address
@@ -101,7 +100,7 @@ public abstract class NetworkOptions {
    * @return a reference to this, so the API can be used fluently
    */
   public NetworkOptions setSendBufferSize(int sendBufferSize) {
-    Arguments.require(sendBufferSize > 0, "sendBufferSize must be > 0");
+    Arguments.require(sendBufferSize > 0  || sendBufferSize == DEFAULT_SEND_BUFFER_SIZE, "sendBufferSize must be > 0");
     this.sendBufferSize = sendBufferSize;
     return this;
   }
@@ -122,7 +121,7 @@ public abstract class NetworkOptions {
    * @return a reference to this, so the API can be used fluently
    */
   public NetworkOptions setReceiveBufferSize(int receiveBufferSize) {
-    Arguments.require(receiveBufferSize > 0, "receiveBufferSize must be > 0");
+    Arguments.require(receiveBufferSize > 0 || receiveBufferSize == DEFAULT_RECEIVE_BUFFER_SIZE, "receiveBufferSize must be > 0");
     this.receiveBufferSize = receiveBufferSize;
     return this;
   }
@@ -158,7 +157,7 @@ public abstract class NetworkOptions {
    * @return a reference to this, so the API can be used fluently
    */
   public NetworkOptions setTrafficClass(int trafficClass) {
-    Arguments.requireInRange(trafficClass, 0, 255, "trafficClass tc must be 0 <= tc <= 255");
+    Arguments.requireInRange(trafficClass, DEFAULT_TRAFFIC_CLASS, 255, "trafficClass tc must be 0 <= tc <= 255");
     this.trafficClass = trafficClass;
     return this;
   }

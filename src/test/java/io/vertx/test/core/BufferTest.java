@@ -18,15 +18,20 @@ package io.vertx.test.core;
 
 import io.netty.buffer.ByteBuf;
 import io.vertx.core.buffer.Buffer;
+import io.vertx.core.json.DecodeException;
+import io.vertx.core.json.JsonArray;
+import io.vertx.core.json.JsonObject;
 import org.junit.Test;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 
 import static io.vertx.test.core.TestUtils.assertIllegalArgumentException;
 import static io.vertx.test.core.TestUtils.assertIndexOutOfBoundsException;
 import static io.vertx.test.core.TestUtils.assertNullPointerException;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * @author <a href="http://tfox.org">Tim Fox</a>
@@ -187,6 +192,7 @@ public class BufferTest {
     b.appendString(str);
     assertEquals(b.length(), sb.length);
     assertTrue(str.equals(b.toString("UTF-8")));
+    assertTrue(str.equals(b.toString(StandardCharsets.UTF_8)));
 
     assertNullPointerException(() -> b.appendString(null));
     assertNullPointerException(() -> b.appendString(null, "UTF-8"));
@@ -258,10 +264,10 @@ public class BufferTest {
     assertIndexOutOfBoundsException(() -> b.setShort(-1, (short) 0));
     assertIndexOutOfBoundsException(() -> b.setBuffer(-1, b));
     assertIndexOutOfBoundsException(() -> b.setBuffer(0, b, -1, 0));
-    assertIllegalArgumentException(() -> b.setBuffer(0, b, 0, -1));
+    assertIndexOutOfBoundsException(() -> b.setBuffer(0, b, 0, -1));
     assertIndexOutOfBoundsException(() -> b.setBytes(-1, TestUtils.randomByteArray(1)));
     assertIndexOutOfBoundsException(() -> b.setBytes(-1, TestUtils.randomByteArray(1), -1, 0));
-    assertIllegalArgumentException(() -> b.setBytes(-1, TestUtils.randomByteArray(1), 0, -1));
+    assertIndexOutOfBoundsException(() -> b.setBytes(-1, TestUtils.randomByteArray(1), 0, -1));
     assertIndexOutOfBoundsException(() -> b.setString(-1, ""));
     assertIndexOutOfBoundsException(() -> b.setString(-1, "", "UTF-8"));
   }
@@ -406,6 +412,50 @@ public class BufferTest {
     byte[] sub = new byte[bytes.length / 2];
     System.arraycopy(bytes, bytes.length / 4, sub, 0, bytes.length / 2);
     assertTrue(TestUtils.byteArraysEqual(sub, b.getBytes(bytes.length / 4, bytes.length / 4 + bytes.length / 2)));
+  }
+
+  @Test
+  public void testGetBytesWithByteArray() throws Exception {
+    byte[] bytes = TestUtils.randomByteArray(100);
+    Buffer b = Buffer.buffer(bytes);
+
+    byte[] sub = new byte[bytes.length / 2];
+    System.arraycopy(bytes, bytes.length / 4, sub, 0, bytes.length / 2);
+
+    byte[] result = new byte[bytes.length / 2];
+    b.getBytes(bytes.length / 4, bytes.length / 4 + bytes.length / 2, result);
+
+    assertTrue(TestUtils.byteArraysEqual(sub, result));
+  }
+
+  @Test(expected = IndexOutOfBoundsException.class)
+  public void testGetBytesWithTooSmallByteArray() throws Exception {
+    byte[] bytes = TestUtils.randomByteArray(100);
+    Buffer b = Buffer.buffer(bytes);
+    byte[] result = new byte[bytes.length / 4];
+    b.getBytes(bytes.length / 4, bytes.length / 4 + bytes.length / 2, result);
+  }
+
+  @Test
+  public void testGetBytesWithByteArrayFull() throws Exception {
+    byte[] bytes = TestUtils.randomByteArray(100);
+    Buffer b = Buffer.buffer(bytes);
+
+    byte[] sub = new byte[bytes.length];
+    System.arraycopy(bytes, bytes.length / 4, sub, 12, bytes.length / 2);
+
+    byte[] result = new byte[bytes.length];
+    b.getBytes(bytes.length / 4, bytes.length / 4 + bytes.length / 2, result, 12);
+
+    assertTrue(TestUtils.byteArraysEqual(sub, result));
+  }
+
+  @Test(expected = IndexOutOfBoundsException.class)
+  public void testGetBytesWithBadOffset() throws Exception {
+    byte[] bytes = TestUtils.randomByteArray(100);
+    Buffer b = Buffer.buffer(bytes);
+    byte[] result = new byte[bytes.length / 2];
+    b.getBytes(bytes.length / 4, bytes.length / 4 + bytes.length / 2, result, -1);
   }
 
   private final int numSets = 100;
@@ -749,5 +799,39 @@ public class BufferTest {
     assertEquals(rand, buff.getLong(10));
     buff.appendString(TestUtils.randomUnicodeString(100));
     assertEquals(10, sliced.length());
+  }
+
+  @Test
+  public void testToJsonObject() throws Exception {
+    JsonObject obj = new JsonObject();
+    obj.put("wibble", "wibble_value");
+    obj.put("foo", 5);
+    obj.put("bar", true);
+    Buffer buff = Buffer.buffer(obj.encode());
+    assertEquals(obj, buff.toJsonObject());
+
+    buff = Buffer.buffer(TestUtils.randomAlphaString(10));
+    try {
+      buff.toJsonObject();
+      fail();
+    } catch (DecodeException ignore) {
+    }
+  }
+
+  @Test
+  public void testToJsonArray() throws Exception {
+    JsonArray arr = new JsonArray();
+    arr.add("wibble");
+    arr.add(5);
+    arr.add(true);
+    Buffer buff = Buffer.buffer(arr.encode());
+    assertEquals(arr, buff.toJsonArray());
+
+    buff = Buffer.buffer(TestUtils.randomAlphaString(10));
+    try {
+      buff.toJsonObject();
+      fail();
+    } catch (DecodeException ignore) {
+    }
   }
 }

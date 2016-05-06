@@ -248,8 +248,9 @@ public class NetSocketImpl extends ConnectionBase implements NetSocket {
   public synchronized NetSocket upgradeToSsl(final Handler<Void> handler) {
     SslHandler sslHandler = channel.pipeline().get(SslHandler.class);
     if (sslHandler == null) {
-      sslHandler = helper.createSslHandler(vertx, client);
-      channel.pipeline().addFirst(sslHandler);
+
+      sslHandler = helper.createSslHandler(vertx, this.remoteAddress().host(), this.remoteAddress().port());
+      channel.pipeline().addFirst("ssl", sslHandler);
     }
     sslHandler.handshakeFuture().addListener(future -> context.executeFromIO(() -> {
       if (future.isSuccess()) {
@@ -276,6 +277,11 @@ public class NetSocketImpl extends ConnectionBase implements NetSocket {
   protected synchronized void handleInterestedOpsChanged() {
     checkContext();
     callDrainHandler();
+  }
+
+  @Override
+  public void end() {
+    close();
   }
 
   @Override

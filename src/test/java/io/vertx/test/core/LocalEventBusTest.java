@@ -16,29 +16,11 @@
 
 package io.vertx.test.core;
 
-import io.vertx.core.AbstractVerticle;
-import io.vertx.core.AsyncResult;
-import io.vertx.core.Context;
-import io.vertx.core.DeploymentOptions;
-import io.vertx.core.Handler;
-import io.vertx.core.MultiMap;
-import io.vertx.core.Vertx;
-import io.vertx.core.eventbus.DeliveryOptions;
-import io.vertx.core.eventbus.EventBus;
-import io.vertx.core.eventbus.Message;
-import io.vertx.core.eventbus.MessageCodec;
-import io.vertx.core.eventbus.MessageConsumer;
-import io.vertx.core.eventbus.MessageProducer;
-import io.vertx.core.eventbus.ReplyException;
-import io.vertx.core.eventbus.ReplyFailure;
-import io.vertx.core.eventbus.impl.EventBusImpl;
+import io.vertx.core.*;
+import io.vertx.core.eventbus.*;
+import io.vertx.core.eventbus.impl.HandlerRegistration;
 import io.vertx.core.http.CaseInsensitiveHeaders;
-import io.vertx.core.impl.ConcurrentHashSet;
-import io.vertx.core.impl.ContextImpl;
-import io.vertx.core.impl.EventLoopContext;
-import io.vertx.core.impl.MultiThreadedWorkerContext;
-import io.vertx.core.impl.VertxInternal;
-import io.vertx.core.impl.WorkerContext;
+import io.vertx.core.impl.*;
 import io.vertx.core.streams.Pump;
 import io.vertx.core.streams.ReadStream;
 import io.vertx.core.streams.WriteStream;
@@ -63,12 +45,12 @@ import static io.vertx.test.core.TestUtils.*;
  */
 public class LocalEventBusTest extends EventBusTestBase {
 
-  private Vertx vertx;
   private EventBus eb;
   private boolean running;
 
   public void setUp() throws Exception {
     super.setUp();
+    vertx.close();
     vertx = Vertx.vertx();
     eb = vertx.eventBus();
     running = true;
@@ -441,6 +423,7 @@ public class LocalEventBusTest extends EventBusTestBase {
       ReplyException re = (ReplyException) cause;
       assertEquals(-1, re.failureCode());
       assertEquals(ReplyFailure.NO_HANDLERS, re.failureType());
+      assertEquals("No handlers for address " + ADDRESS1, re.getMessage());
       testComplete();
     });
     await();
@@ -501,8 +484,8 @@ public class LocalEventBusTest extends EventBusTestBase {
     });
     AtomicBoolean received = new AtomicBoolean();
     eb.send(ADDRESS1, str, new DeliveryOptions().setSendTimeout(timeout), (AsyncResult<Message<Integer>> ar) -> {
-      assertTrue(ar.succeeded());
       assertFalse(received.get());
+      assertTrue(ar.succeeded());
       received.set(true);
       // Now wait longer than timeout and make sure we don't receive any other reply
       vertx.setTimer(timeout * 2, tid -> {
@@ -924,6 +907,18 @@ public class LocalEventBusTest extends EventBusTestBase {
     assertNullPointerException(() -> vertx.eventBus().registerDefaultCodec(String.class, new NullNameCodec()));
   }
 
+  @Test
+  public void testDefaultCodecReplyExceptionSubclass() throws Exception {
+    MyReplyException myReplyException = new MyReplyException(23, "my exception");
+    vertx.eventBus().registerDefaultCodec(MyReplyException.class, new MyReplyExceptionMessageCodec());
+    eb.<ReplyException>consumer(ADDRESS1, msg -> {
+      assertTrue(msg.body() instanceof MyReplyException);
+      testComplete();
+    });
+    vertx.eventBus().send(ADDRESS1, myReplyException);
+    await();
+  }
+
 
   @Override
   protected <T, R> void testSend(T val, R received, Consumer<T> consumer, DeliveryOptions options) {
@@ -1036,7 +1031,7 @@ public class LocalEventBusTest extends EventBusTestBase {
     };
     MessageConsumer<String> reg = eb.<String>consumer(ADDRESS1).setMaxBufferedMessages(10);
     ReadStream<?> controller = register.apply(reg, handler);
-    ((EventBusImpl.HandlerRegistration<String>) reg).discardHandler(msg -> {
+    ((HandlerRegistration<String>) reg).discardHandler(msg -> {
       assertEquals(data[10], msg.body());
       expected.addAll(Arrays.asList(data).subList(0, 10));
       controller.resume();
@@ -1074,7 +1069,7 @@ public class LocalEventBusTest extends EventBusTestBase {
     };
     MessageConsumer<String> reg = eb.<String>consumer(ADDRESS1).setMaxBufferedMessages(10);
     ReadStream<?> controller = register.apply(reg, handler);
-    ((EventBusImpl.HandlerRegistration<String>) reg).discardHandler(msg -> {
+    ((HandlerRegistration<String>) reg).discardHandler(msg -> {
       assertEquals(data[10], msg.body());
       expected.addAll(Arrays.asList(data).subList(0, 10));
       controller.resume();
@@ -1255,7 +1250,9 @@ public class LocalEventBusTest extends EventBusTestBase {
       producer.write("no-header");
     });
     consumer.handler(msg -> {
-      switch (msg.body()) {
+      String body = msg.body();
+      assertNotNull(body);
+      switch (body) {
         case "no-header":
           assertNull(msg.headers().get("header-name"));
           producer.deliveryOptions(new DeliveryOptions().addHeader("header-name", "header-value"));
@@ -1290,6 +1287,20 @@ public class LocalEventBusTest extends EventBusTestBase {
     });
     awaitLatch(registered);
     closeVertx();
+    await();
+  }
+
+  @Test
+  public void testConsumerUnregisterDoesNotCancelTimer0() throws Exception {
+    Context ctx = vertx.getOrCreateContext();
+    ctx.runOnContext(v -> {
+      // The delay does not matter so much, it will always be executed after this task anyway
+      vertx.setTimer(50, id -> {
+        assertEquals(0, (long) id);
+        testComplete();
+      });
+      eb.consumer(ADDRESS1).unregister();
+    });
     await();
   }
 }

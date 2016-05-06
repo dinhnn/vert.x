@@ -16,7 +16,9 @@
 
 package io.vertx.core.http;
 
+import io.vertx.codegen.annotations.CacheReturn;
 import io.vertx.codegen.annotations.GenIgnore;
+import io.vertx.codegen.annotations.Nullable;
 import io.vertx.core.AsyncResult;
 import io.vertx.core.Handler;
 import io.vertx.codegen.annotations.Fluent;
@@ -43,6 +45,7 @@ public interface HttpServer extends Measured {
    *
    * @return the request stream
    */
+  @CacheReturn
   HttpServerRequestStream requestStream();
 
   /**
@@ -51,6 +54,7 @@ public interface HttpServer extends Measured {
    *
    * @return a reference to this, so the API can be used fluently
    */
+  @Fluent
   HttpServer requestHandler(Handler<HttpServerRequest> handler);
 
   /**
@@ -60,11 +64,21 @@ public interface HttpServer extends Measured {
   Handler<HttpServerRequest> requestHandler();
 
   /**
+   * Set a connection handler for the server. The connection handler is called after an HTTP2 connection has
+   * been negociated.
+   *
+   * @return a reference to this, so the API can be used fluently
+   */
+  @Fluent
+  HttpServer connectionHandler(Handler<HttpConnection> handler);
+
+  /**
    * Return the websocket stream for the server. If a websocket connect handshake is successful a
    * new {@link ServerWebSocket} instance will be created and passed to the stream {@link io.vertx.core.streams.ReadStream#handler(io.vertx.core.Handler)}.
    *
    * @return the websocket stream
    */
+  @CacheReturn
   ServerWebSocketStream websocketStream();
 
   /**
@@ -73,6 +87,7 @@ public interface HttpServer extends Measured {
    *
    * @return a reference to this, so the API can be used fluently
    */
+  @Fluent
   HttpServer websocketHandler(Handler<ServerWebSocket> handler);
 
   /**
@@ -159,4 +174,11 @@ public interface HttpServer extends Measured {
    */
   void close(Handler<AsyncResult<Void>> completionHandler);
 
+  /**
+   * The actual port the server is listening on. This is useful if you bound the server specifying 0 as port number
+   * signifying an ephemeral port
+   *
+   * @return the actual port the server is listening on.
+   */
+  int actualPort();
 }

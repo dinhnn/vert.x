@@ -17,14 +17,7 @@
 package io.vertx.core.net.impl;
 
 import io.netty.bootstrap.ServerBootstrap;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInitializer;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.ChannelPipeline;
-import io.netty.channel.EventLoop;
-import io.netty.channel.FixedRecvByteBufAllocator;
+import io.netty.channel.*;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.ChannelGroupFuture;
 import io.netty.channel.group.DefaultChannelGroup;
@@ -37,20 +30,19 @@ import io.vertx.core.AsyncResult;
 import io.vertx.core.AsyncResultHandler;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
-import io.vertx.core.impl.Closeable;
+import io.vertx.core.Closeable;
 import io.vertx.core.impl.ContextImpl;
 import io.vertx.core.impl.VertxInternal;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
-import io.vertx.core.spi.metrics.Metrics;
-import io.vertx.core.spi.metrics.MetricsProvider;
-import io.vertx.core.spi.metrics.TCPMetrics;
 import io.vertx.core.net.NetServer;
 import io.vertx.core.net.NetServerOptions;
 import io.vertx.core.net.NetSocket;
 import io.vertx.core.net.NetSocketStream;
+import io.vertx.core.spi.metrics.Metrics;
+import io.vertx.core.spi.metrics.MetricsProvider;
+import io.vertx.core.spi.metrics.TCPMetrics;
 
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.LinkedList;
 import java.util.Map;
@@ -73,16 +65,15 @@ public class NetServerImpl implements NetServer, Closeable, MetricsProvider {
   private final SSLHelper sslHelper;
   private final Map<Channel, NetSocketImpl> socketMap = new ConcurrentHashMap<>();
   private final VertxEventLoopGroup availableWorkers = new VertxEventLoopGroup();
-  private final HandlerManager<NetSocket> handlerManager = new HandlerManager<>(availableWorkers);
+  private final HandlerManager<Handler<NetSocket>> handlerManager = new HandlerManager<>(availableWorkers);
   private final Queue<Runnable> bindListeners = new LinkedList<>();
   private final NetSocketStreamImpl connectStream = new NetSocketStreamImpl();
   private ChannelGroup serverChannelGroup;
   private volatile boolean listening;
   private volatile ServerID id;
   private NetServerImpl actualServer;
-  private ChannelFuture bindFuture;
+  private AsyncResolveBindConnectHelper<ChannelFuture> bindFuture;
   private volatile int actualPort;
-  private boolean listenersRun;
   private ContextImpl listenContext;
   private TCPMetrics metrics;
 
@@ -174,7 +165,7 @@ public class NetServerImpl implements NetServer, Closeable, MetricsProvider {
             }
             ChannelPipeline pipeline = ch.pipeline();
             if (sslHelper.isSSL()) {
-              SslHandler sslHandler = sslHelper.createSslHandler(vertx, false);
+              SslHandler sslHandler = sslHelper.createSslHandler(vertx);
               pipeline.addLast("ssl", sslHandler);
             }
             if (sslHelper.isSSL()) {
@@ -184,7 +175,7 @@ public class NetServerImpl implements NetServer, Closeable, MetricsProvider {
             if (options.getIdleTimeout() > 0) {
               pipeline.addLast("idle", new IdleStateHandler(0, 0, options.getIdleTimeout()));
             }
-            pipeline.addLast("handler", new ServerHandler());
+            pipeline.addLast("handler", new ServerHandler(ch));
           }
         });
 
@@ -195,21 +186,22 @@ public class NetServerImpl implements NetServer, Closeable, MetricsProvider {
         }
 
         try {
-          InetSocketAddress addr = new InetSocketAddress(InetAddress.getByName(host), port);
-          bindFuture = bootstrap.bind(addr).addListener(future -> runListeners());
-          this.addListener(() -> {
-            if (bindFuture.isSuccess()) {
-              log.trace("Net server listening on " + host + ":" + bindFuture.channel().localAddress());
+          bindFuture = AsyncResolveBindConnectHelper.doBind(vertx, port, host, bootstrap);
+          bindFuture.addListener(res -> {
+            if (res.succeeded()) {
+              Channel ch = res.result().channel();
+              log.trace("Net server listening on " + host + ":" + ch.localAddress());
               // Update port to actual port - wildcard port 0 might have been used
-              NetServerImpl.this.actualPort = ((InetSocketAddress)bindFuture.channel().localAddress()).getPort();
+              NetServerImpl.this.actualPort = ((InetSocketAddress)ch.localAddress()).getPort();
               NetServerImpl.this.id = new ServerID(NetServerImpl.this.actualPort, id.host);
+              serverChannelGroup.add(ch);
               vertx.sharedNetServers().put(id, NetServerImpl.this);
               metrics = vertx.metricsSPI().createMetrics(this, new SocketAddressImpl(id.port, id.host), options);
             } else {
               vertx.sharedNetServers().remove(id);
             }
           });
-          serverChannelGroup.add(bindFuture.channel());
+
         } catch (Throwable t) {
           // Make sure we send the exception back through the handler (if any)
           if (listenHandler != null) {
@@ -236,23 +228,22 @@ public class NetServerImpl implements NetServer, Closeable, MetricsProvider {
       }
 
       // just add it to the future so it gets notified once the bind is complete
-      actualServer.addListener(() -> {
+      actualServer.bindFuture.addListener(res -> {
         if (listenHandler != null) {
-          AsyncResult<NetServer> res;
-          if (actualServer.bindFuture.isSuccess()) {
-            res = Future.succeededFuture(NetServerImpl.this);
+          AsyncResult<NetServer> ares;
+          if (res.succeeded()) {
+            ares = Future.succeededFuture(NetServerImpl.this);
           } else {
             listening = false;
-
-            res = Future.failedFuture(actualServer.bindFuture.cause());
+            ares = Future.failedFuture(res.cause());
           }
           // Call with expectRightThread = false as if server is already listening
           // Netty will call future handler immediately with calling thread
           // which might be a non Vert.x thread (if running embedded)
-          listenContext.runOnContext(v -> listenHandler.handle(res));
-        } else if (!actualServer.bindFuture.isSuccess()) {
+          listenContext.runOnContext(v -> listenHandler.handle(ares));
+        } else if (res.failed()) {
           // No handler - log so user can see failure
-          log.error("Failed to listen", actualServer.bindFuture.cause());
+          log.error("Failed to listen", res.cause());
           listening = false;
         }
       });
@@ -338,8 +329,9 @@ public class NetServerImpl implements NetServer, Closeable, MetricsProvider {
       bootstrap.childOption(ChannelOption.SO_RCVBUF, options.getReceiveBufferSize());
       bootstrap.childOption(ChannelOption.RCVBUF_ALLOCATOR, new FixedRecvByteBufAllocator(options.getReceiveBufferSize()));
     }
-
-    bootstrap.option(ChannelOption.SO_LINGER, options.getSoLinger());
+    if (options.getSoLinger() != -1) {
+      bootstrap.option(ChannelOption.SO_LINGER, options.getSoLinger());
+    }
     if (options.getTrafficClass() != -1) {
       bootstrap.childOption(ChannelOption.IP_TOS, options.getTrafficClass());
     }
@@ -347,24 +339,9 @@ public class NetServerImpl implements NetServer, Closeable, MetricsProvider {
 
     bootstrap.childOption(ChannelOption.SO_KEEPALIVE, options.isTcpKeepAlive());
     bootstrap.option(ChannelOption.SO_REUSEADDR, options.isReuseAddress());
-    bootstrap.option(ChannelOption.SO_BACKLOG, options.getAcceptBacklog());
-  }
-
-  private synchronized void addListener(Runnable runner) {
-    if (!listenersRun) {
-      bindListeners.add(runner);
-    } else {
-      // Run it now
-      runner.run();
+    if (options.getAcceptBacklog() != -1) {
+      bootstrap.option(ChannelOption.SO_BACKLOG, options.getAcceptBacklog());
     }
-  }
-
-  private synchronized void runListeners() {
-    Runnable runner;
-    while ((runner = bindListeners.poll()) != null) {
-      runner.run();
-    }
-    listenersRun = true;
   }
 
   private void actualClose(ContextImpl closeContext, Handler<AsyncResult<Void>> done) {
@@ -400,8 +377,8 @@ public class NetServerImpl implements NetServer, Closeable, MetricsProvider {
   }
 
   private class ServerHandler extends VertxNetHandler {
-    public ServerHandler() {
-      super(socketMap);
+    public ServerHandler(Channel ch) {
+      super(ch, socketMap);
     }
 
     @Override
@@ -410,7 +387,7 @@ public class NetServerImpl implements NetServer, Closeable, MetricsProvider {
       EventLoop worker = ch.eventLoop();
 
       //Choose a handler
-      HandlerHolder<NetSocket> handler = handlerManager.chooseHandler(worker);
+      HandlerHolder<Handler<NetSocket>> handler = handlerManager.chooseHandler(worker);
       if (handler == null) {
         //Ignore
         return;
@@ -424,7 +401,7 @@ public class NetServerImpl implements NetServer, Closeable, MetricsProvider {
           if (future.isSuccess()) {
             connected(ch, handler);
           } else {
-            log.error("Client from origin " + ch.remoteAddress() + " failed to connect over ssl");
+            log.error("Client from origin " + ch.remoteAddress() + " failed to connect over ssl: " + future.cause());
           }
         });
       } else {
@@ -432,13 +409,15 @@ public class NetServerImpl implements NetServer, Closeable, MetricsProvider {
       }
     }
 
-    private void connected(Channel ch, HandlerHolder<NetSocket> handler) {
+    private void connected(Channel ch, HandlerHolder<Handler<NetSocket>> handler) {
       // Need to set context before constructor is called as writehandler registration needs this
       ContextImpl.setContext(handler.context);
       NetSocketImpl sock = new NetSocketImpl(vertx, ch, handler.context, sslHelper, false, metrics, null);
       socketMap.put(ch, sock);
+      VertxNetHandler netHandler = ch.pipeline().get(VertxNetHandler.class);
+      netHandler.conn = sock;
       handler.context.executeFromIO(() -> {
-        sock.setMetric(metrics.connected(sock.remoteAddress()));
+        sock.setMetric(metrics.connected(sock.remoteAddress(), sock.remoteName()));
         handler.handler.handle(sock);
       });
     }

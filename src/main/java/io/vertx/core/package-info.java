@@ -247,11 +247,13 @@
  * you diagnose such issues, Vert.x will automatically log warnings if it detects an event loop hasn't returned for
  * some time. If you see warnings like these in your logs, then you should investigate.
  *
- *  Thread vertx-eventloop-thread-3 has been blocked for 20458 ms
+ * ----
+ * Thread vertx-eventloop-thread-3 has been blocked for 20458 ms
+ * ----
  *
  * Vert.x will also provide stack traces to pinpoint exactly where the blocking is occurring.
  *
- * If you want to turn of these warnings or change the settings, you can do that in the
+ * If you want to turn off these warnings or change the settings, you can do that in the
  * {@link io.vertx.core.VertxOptions} object before creating the Vertx object.
  *
  * [[blocking_code]]
@@ -260,7 +262,7 @@
  * In a perfect world, there will be no war or hunger, all APIs will be written asynchronously and bunny rabbits will
  * skip hand-in-hand with baby lambs across sunny green meadows.
  *
- * *But.. the real world is not like that. (Have you watched the news lately?)*
+ * *But... the real world is not like that. (Have you watched the news lately?)*
  *
  * Fact is, many, if not most libraries, especially in the JVM ecosystem have synchronous APIs and many of the methods are
  * likely to block. A good example is the JDBC API - it's inherently synchronous, and no matter how hard it tries, Vert.x
@@ -291,6 +293,66 @@
  *
  * A worker verticle is always executed with a thread from the worker pool.
  *
+ * By default blocking code is executed on the Vert.x blocking code pool, configured with {@link io.vertx.core.VertxOptions#setWorkerPoolSize(int)}.
+ *
+ * Additional pools can be created for different purposes:
+ *
+ * [source,$lang]
+ * ----
+ * {@link examples.CoreExamples#workerExecutor1}
+ * ----
+ *
+ * The worker executor must be closed when it's not necessary anymore:
+ *
+ * [source,$lang]
+ * ----
+ * {@link examples.CoreExamples#workerExecutor2}
+ * ----
+ *
+ * When several workers are created with the same name, they will share the same pool. The worker pool is destroyed
+ * when all the worker executors using it are closed.
+ *
+ * When an executor is created in a Verticle, Vert.x will close it automatically for you when the Verticle
+ * is undeployed.
+ *
+ * Worker executors can be configured when created:
+ *
+ * [source,$lang]
+ * ----
+ * {@link examples.CoreExamples#workerExecutor3}
+ * ----
+ *
+ * NOTE: the configuration is set when the worker pool is created
+ *
+ * == Async coordination
+ *
+ * Coordination of multiple asynchronous results can be achieved with Vert.x {@link io.vertx.core.Future futures}.
+ *
+ * {@link io.vertx.core.CompositeFuture#all} takes several futures arguments (up to 6) and returns a future that is
+ * _succeeded_ when all the futures are and _failed_ otherwise:
+ *
+ * [source,$lang]
+ * ----
+ * {@link examples.CoreExamples#exampleFuture1}
+ * ----
+ *
+ * The handler returned by {@link io.vertx.core.Future#completer()} completes the future.
+ *
+ * {@link io.vertx.core.CompositeFuture#any} takes several futures arguments (up to 6) and returns a future that is
+ * _succeeded_ if one of the futures is, and _failed_ otherwise:
+ *
+ * [source,$lang]
+ * ----
+ * {@link examples.CoreExamples#exampleFuture2}
+ * ----
+ *
+ * {@link io.vertx.core.Future#compose} can be used for chaining futures:
+ *
+ * [source,$lang]
+ * ----
+ * {@link examples.CoreExamples#exampleFuture3}
+ * ----
+ *
  * == Verticles
  *
  * Vert.x comes with a simple, scalable, _actor-like_ deployment and concurrency model out of the box that
@@ -304,9 +366,9 @@
  *
  * To use this model, you write your code as set of *verticles*.
  *
- * Verticles are chunks of code that get deployed and
- * run by Vert.x. Verticles can be written in any of the languages that Vert.x supports and a single application
- * can include verticles written in multiple languages.
+ * Verticles are chunks of code that get deployed and run by Vert.x. A Vert.x instance maintains N event loop threads
+ * (where N by default is core*2) by default. Verticles can be written in any of the languages that Vert.x supports
+ * and a single application can include verticles written in multiple languages.
  *
  * You can think of a verticle as a bit like an actor in the http://en.wikipedia.org/wiki/Actor_model[Actor Model].
  *
@@ -661,6 +723,18 @@
  * If you're creating timers from inside verticles, those timers will be automatically closed
  * when the verticle is undeployed.
  *
+ * === Verticle worker pool
+ *
+ * Verticle use the Vert.x worker pool for executing blocking actions, i.e {@link io.vertx.core.Context#executeBlocking} or
+ * worker verticle.
+ *
+ * A different worker pool can be specified in deployment options:
+ *
+ * [source,$lang]
+ * ----
+ * {@link examples.CoreExamples#deployVerticleWithDifferentWorkerPool}
+ * ----
+ *
  * [[event_bus]]
  * include::eventbus.adoc[]
  *
@@ -711,32 +785,37 @@
  *
  * However, the bundle has some dependencies on Jackson and Netty. To get the vert.x core bundle resolved deploy:
  *
- * * Jackson Annotation [2.5.0,3)
- * * Jackson Core [2.5.0,3)
- * * Jackson Databind [2.5.0,3)
- * * Netty Buffer [4.0.27,5)
- * * Netty Codec [4.0.27,5)
- * * Netty Codec/Socks [4.0.27,5)
- * * Netty Codec/Common [4.0.27,5)
- * * Netty Codec/Handler [4.0.27,5)
- * * Netty Codec/Transport [4.0.27,5)
+ * * Jackson Annotation [2.6.0,3)
+ * * Jackson Core [2.6.2,3)
+ * * Jackson Databind [2.6.2,3)
+ * * Netty Buffer [4.0.31,5)
+ * * Netty Codec [4.0.31,5)
+ * * Netty Codec/Socks [4.0.31,5)
+ * * Netty Codec/Common [4.0.31,5)
+ * * Netty Codec/Handler [4.0.31,5)
+ * * Netty Codec/Transport [4.0.31,5)
  *
- * Here is a working deployment on Apache Felix 4.6.1:
+ * Here is a working deployment on Apache Felix 5.2.0:
  *
  *[source]
  *----
- *   14|Active     |    1|Jackson-annotations (2.5.3)
- *   15|Active     |    1|Jackson-core (2.5.3)
- *   16|Active     |    1|jackson-databind (2.5.3)
- *   17|Active     |    1|Netty/Buffer (4.0.27.Final)
- *   18|Active     |    1|Netty/Codec (4.0.27.Final)
- *   19|Active     |    1|Netty/Codec/HTTP (4.0.27.Final)
- *   20|Active     |    1|Netty/Codec/Socks (4.0.27.Final)
- *   21|Active     |    1|Netty/Common (4.0.27.Final)
- *   22|Active     |    1|Netty/Handler (4.0.27.Final)
- *   23|Active     |    1|Netty/Transport (4.0.27.Final)
- *   25|Active     |    1|Vert.x Core (3.0.0.SNAPSHOT)
+ * 14|Active     |    1|Jackson-annotations (2.6.0)
+ * 15|Active     |    1|Jackson-core (2.6.2)
+ * 16|Active     |    1|jackson-databind (2.6.2)
+ * 18|Active     |    1|Netty/Buffer (4.0.31.Final)
+ * 19|Active     |    1|Netty/Codec (4.0.31.Final)
+ * 20|Active     |    1|Netty/Codec/HTTP (4.0.31.Final)
+ * 21|Active     |    1|Netty/Codec/Socks (4.0.31.Final)
+ * 22|Active     |    1|Netty/Common (4.0.31.Final)
+ * 23|Active     |    1|Netty/Handler (4.0.31.Final)
+ * 24|Active     |    1|Netty/Transport (4.0.31.Final)
+ * 25|Active     |    1|Netty/Transport/SCTP (4.0.31.Final)
+ * 26|Active     |    1|Vert.x Core (3.1.0)
  *----
+ *
+ * On Equinox, you may want to disable the `ContextFinder` with the following framework property:
+ * `eclipse.bundle.setTCCL=false`
+ *
  *
  * == The 'vertx' command line
  *
@@ -748,7 +827,8 @@
  *
  * === Run verticles
  *
- * You can run raw Vert.x verticles directly from the command line using `vertx run`. Here is a couple of examples:
+ * You can run raw Vert.x verticles directly from the command line using `vertx run`. Here is a couple of examples of
+ * the `run` _command_:
  *
  * [source]
  * ----
@@ -811,6 +891,8 @@
  *  * `-hagroup` - used in conjunction with `-ha`. It specifies the HA group this node will join. There can be
  *  multiple HA groups in a cluster. Nodes will only failover to other nodes in the same group. The default value is `
  *  +++__DEFAULT__+++`
+ *
+ * You can also set system properties using: `-Dkey=value`.
  *
  * Here are some more examples:
  *
@@ -887,13 +969,13 @@
  * There is nothing really Vert.x specific about this, you could do this with any Java application
  *
  * You can either create your own main class and specify that in the manifest, but it's recommended that you write your
- * code as verticles and use the Vert.x `Starter` class as your main class. This is the same main class used when running
- * Vert.x at the command line and therefore allows you to specify command line arguments, such as `-instances` in order
- * to scale your application more easily.
+ * code as verticles and use the Vert.x {@link io.vertx.core.Launcher} class (`io.vertx.core.Launcher`) as your main
+ * class. This is the same main class used when running Vert.x at the command line and therefore allows you to
+ * specify command line arguments, such as `-instances` in order to scale your application more easily.
  *
  * To deploy your verticle in a _fatjar_ like this you must have a _manifest_ with:
  *
- * * `Main-Class` set to `io.vertx.core.Starter`
+ * * `Main-Class` set to `io.vertx.core.Launcher`
  * * `Main-Verticle` specifying the main verticle (fully qualified class name or script file name)
  *
  * You can also provide the usual command line arguments that you would pass to `vertx run`:
@@ -906,13 +988,134 @@
  * NOTE: Please consult the Maven/Gradle simplest and Maven/Gradle verticle examples in the examples repository for
  * examples of building applications as fatjars.
  *
+ * A fat jar executes the `run` command, by default.
+ *
  * === Displaying version of Vert.x
  * To display the vert.x version, just launch:
  *
  * [source]
  * ----
- * vertx -version
+ * vertx version
  * ----
+ *
+ * === Other commands
+ *
+ * The `vertx` command line and the `Launcher` also provide other _commands_ in addition to `run` and `version`:
+ *
+ * You can create a `bare` instance using:
+ *
+ * [source]
+ * ----
+ * vertx bare
+ * # or
+ * java -jar my-verticle-fat.jar bare
+ * ----
+ *
+ * You can also start an application in background using:
+ *
+ * [source]
+ * ----
+ * java -jar my-verticle-fat.jar start -Dvertx-id=my-app-name
+ * ----
+ *
+ * If `my-app-name` is not set, a random id will be generated, and printed on the command prompt. You can pass `run`
+ * options to the `start` command:
+ *
+ * [source]
+ * ----
+ * java -jar my-verticle-fat.jar start -Dvertx-id=my-app-name -cluster
+ * ----
+ *
+ * Once launched in background, you can stop it with the `stop` command:
+ *
+ * [source]
+ * ----
+ * java -jar my-verticle-fat.jar stop my-app-name
+ * ----
+ *
+ * You can also list the vert.x application launched in background using:
+ *
+ * [source]
+ * ----
+ * java -jar my-verticle-fat.jar list
+ * ----
+ *
+ * The `start`, `stop` and `list` command are also available from the `vertx` tool. The start` command supports a couple of options:
+ *
+ *  * `vertx-id` : the application id, uses a random UUID if not set
+ *  * `java-opts` : the Java Virtual Machine options, uses the `JAVA_OPTS` environment variable if not set.
+ *  * `redirect-output` : redirect the spawned process output and error streams to the parent process streams.
+ *
+ *  If option values contain spaces, don't forget to wrap the value between {@code ""} (double-quotes).
+ *
+ *  As the `start` command spawns a new process, the java options passed to the JVM are not propagated, so you **must**
+ *  use `java-opts` to configure the JVM (`-X`, `-D`...). If you use the `CLASSPATH` environment variable, be sure it
+ *  contains all the required jars (vertx-core, your jars and all the dependencies).
+ *
+ * The set of commands is extensible, refer to the <<Extending the vert.x Launcher>> section.
+ *
+ * === Live Redeploy
+ *
+ * When developing it may be convenient to automatically redeploy your application upon file changes. The `vertx`
+ * command line tool and more generally the {@link io.vertx.core.Launcher} class offers this feature. Here are some
+ * examples:
+ *
+ * [source]
+ * ----
+ * vertx run MyVerticle.groovy --redeploy="**&#47;*.groovy" --launcher-class=io.vertx.core.Launcher
+ * vertx run MyVerticle.groovy --redeploy="**&#47;*.groovy,**&#47;*.rb"  --launcher-class=io.vertx.core.Launcher
+ * java io.vertx.core.Launcher run org.acme.MyVerticle --redeploy="**&#47;*.class"  --launcher-class=io.vertx.core
+ * .Launcher -cp ...
+ * ----
+ *
+ * The redeployment process is implemented as follows. First your application is launched as a background application
+ * (with the `start` command). On matching file changes, the process is stopped and the application is restarted.
+ * This way avoids leaks.
+ *
+ * To enable the live redeploy, pass the `--redeploy` option to the `run` command. The `--redeploy` indicates the
+ * set of file to _watch_. This set can use Ant-style patterns (with `\**`, `*` and `?`). You can specify
+ * several sets by separating them using a comma (`,`). Patterns are relative to the current working directory.
+ *
+ * Parameters passed to the `run` command are passed to the application. Java Virtual Machine options can be
+ * configured using `--java-opts`.
+ *
+ * The `--launcher-class` option determine with with _main_ class the application is launcher. It's generally
+ * {@link io.vertx.core.Launcher}, but you have use you own _main_.
+ *
+ * The redeploy feature can be used in your IDE:
+ *
+ * * Eclipse - create a _Run_ configuration, using the `io.vertx.core.Launcher` class a _main class_. In the _Program
+ * arguments_ area (in the _Arguments_ tab), write `run your-verticle-fully-qualified-name --redeploy=\**&#47;*.java
+ * --launcher-class=io.vertx.core.Launcher`. You can also add other parameters. The redeployment works smoothly as
+ * Eclipse incrementally compiles your files on save.
+ * * IntelliJ - create a _Run_ configuration (_Application_), set the _Main class_ to `io.vertx.core.Launcher`. In
+ * the Program arguments write: `run your-verticle-fully-qualified-name --redeploy=\**&#47;*.class
+ * --launcher-class=io.vertx.core.Launcher`. To trigger the redeployment, you need to _make_ the project or
+ * the module explicitly (_Build_ menu -> _Make project_).
+ *
+ * To debug your application, create your run configuration as a remote application and configure the debugger
+ * using `--java-opts`. However, don’t forget to re-plug the debugger after every redeployment as a new process is
+ * created every time.
+ *
+ * You can also hook your build process in the redeploy cycle:
+ *
+ * [source]
+ * ----
+ * java -jar target/my-fat-jar.jar --redeploy="**&#47;*.java" --on-redeploy="mvn package"
+ * java -jar build/libs/my-fat-jar.jar --redeploy="src&#47;**&#47;*.java" --on-redeploy='./gradlew shadowJar'
+ * ----
+ *
+ * The "on-redeploy" option specifies a command invoked after the shutdown of the application and before the
+ * restart. So you can hook your build tool if it updates some runtime artifacts. For instance, you can launch `gulp`
+ * or `grunt` to update your resources.
+ *
+ * The redeploy feature also supports the following settings:
+ *
+ * * `redeploy-scan-period` : the file system check period (in milliseconds), 250ms by default
+ * * `redeploy-grace-period` : the amount of time (in milliseconds) to wait between 2 re-deployments, 1000ms by default
+ * * `redeploy-termination-period` : the amount of time to wait after having stopped the application (before
+ * launching user command). This is useful on Windows, where the process is not killed immediately. The time is given
+ * in milliseconds. 0 ms by default.
  *
  * == Cluster Managers
  *
@@ -963,10 +1166,14 @@
  * Log4J or SLF4J.
  *
  * To do this you should set a system property called `vertx.logger-delegate-factory-class-name` with the name of a Java
- * class which implements the interface {@link io.vertx.core.logging.LoggerFactory}. We provide pre-built implementations for
- * Log4J and SLF4J with the class names `io.vertx.core.logging.Log4jLogDelegateFactory` and `io.vertx.core.logging.SLF4JLogDelegateFactory`
- * respectively. If you want to use these implementations you should also make sure the relevant Log4J or SLF4J jars
- * are on your classpath.
+ * class which implements the interface {@link io.vertx.core.spi.logging.LogDelegateFactory}. We provide pre-built
+ * implementations for Log4J (version 1), Log4J 2 and SLF4J with the class names
+ * `io.vertx.core.logging.Log4jLogDelegateFactory`, `io.vertx.core.logging.Log4j2LogDelegateFactory` and
+ * `io.vertx.core.logging.SLF4JLogDelegateFactory` respectively. If you want to use these implementations you should
+ * also make sure the relevant Log4J or SLF4J jars are on your classpath.
+ *
+ * Notice that, the provided delegate for Log4J 1 does not support parameterized message. The delegate for Log4J 2
+ * uses the `{}` syntax like the SLF4J delegate. JUL delegate uses the `{x}` syntax.
  *
  * === Logging from your application
  *
@@ -983,6 +1190,29 @@
  * ----
  * {@link examples.CoreExamples#example18}
  * ----
+ *
+ * == Hostname resolution
+ *
+ * Vert.x uses an an hostname resolver for resolving hostname into IP addresses instead of
+ * the JVM built-in blocking resolver.
+ *
+ * An hostname are resolve to an IP address using:
+ *
+ * - the _hosts_ file of the operating system
+ * - otherwise DNS queries against a list of servers
+ *
+ * By default it will use the list of the system DNS server addresses from the environment, if that list cannot be
+ * retrieved it will use Google's public DNS servers `"8.8.8.8"` and `"8.8.4.4"`.
+ *
+ * DNS servers can be also configured when creating a {@link io.vertx.core.Vertx} instance:
+ *
+ * [source,$lang]
+ * ----
+ * {@link examples.CoreExamples#configureDNSServers}
+ * ----
+ *
+ * The default port of a DNS server is `53`, when a server uses a different port, this port can be set
+ * using a colon delimiter: `192.168.0.2:40000`.
  *
  * == High Availability and Fail-Over
  *
@@ -1159,9 +1389,96 @@
  * For example you should always run them in a DMZ and with an user account that has limited rights in order to limit
  * the extent of damage in case the service was compromised.
  *
+ * == Vert.x Command Line Interface API
+ *
+ * include::cli.adoc[]
+ *
+ * == The vert.x Launcher
+ *
+ * The vert.x {@link io.vertx.core.Launcher} is used in _fat jar_ as main class, and by the `vertx` command line
+ * utility. It executes a set of _commands_ such as _run_, _bare_, _start_...
+ *
+ * === Extending the vert.x Launcher
+ *
+ * You can extend the set of command by implementing your own {@link io.vertx.core.spi.launcher.Command} (in Java only):
+ *
+ * [source, java]
+ * ----
+ * &#64;Name("my-command")
+ * &#64;Summary("A simple hello command.")
+ * public class MyCommand extends DefaultCommand {
+ *
+ *   private String name;
+ *
+ *   &#64;Option(longName = "name", required = true)
+ *   public void setName(String n) {
+ *     this.name = n;
+ *   }
+ *
+ *   &#64;Override
+ *   public void run() throws CLIException {
+ *     System.out.println("Hello " + name);
+ *   }
+ * }
+ * ----
+ *
+ * You also need an implementation of {@link io.vertx.core.spi.launcher.CommandFactory}:
+ *
+ * [source, java]
+ * ----
+ * public class HelloCommandFactory extends DefaultCommandFactory<HelloCommand> {
+ *   public HelloCommandFactory() {
+ *    super(HelloCommand.class);
+ *   }
+ * }
+ * ----
+ *
+ * Then, create the `src/main/resources/META-INF/services/io.vertx.core.spi.launcher.CommandFactory` and add a line
+ * indicating the fully qualified name of the factory:
+ *
+ * ----
+ * io.vertx.core.launcher.example.HelloCommandFactory
+ * ----
+ *
+ * Builds the jar containing the command. Be sure to includes the SPI file
+ * (`META-INF/services/io.vertx.core.spi.launcher.CommandFactory`).
+ *
+ * Then, place the jar containing the command into the classpath of your fat-jar (or include it inside) or in the `lib`
+ * directory of your vert.x distribution, and you would be able to execute:
+ *
+ * [source]
+ * ----
+ * vertx hello vert.x
+ * java -jar my-fat-jar.jar hello vert.x
+ * ----
+ *
+ * === Using the Launcher in fat jars
+ *
+ * To use the {@link io.vertx.core.Launcher} class in a _fat-jar_ just set the `Main-Class` of the _MANIFEST_ to
+ * `io.vertx.core.Launcher`. In addition, set the `Main-Verticle` _MANIFEST_ entry to the name of your main verticle.
+ *
+ * By default, it executed the `run` command. However, you can configure the default command by setting the
+ * `Main-Command` _MANIFEST_ entry. The default command is used if the _fat jar_ is launched without a command.
+ *
+ * === Sub-classing the Launcher
+ *
+ * You can also create a sub-class of {@link io.vertx.core.Launcher} to start your application. The class has been
+ * designed to be easily extensible.
+ *
+ * A {@link io.vertx.core.Launcher} sub-class can:
+ *
+ * * customize the vert.x configuration in {@link io.vertx.core.Launcher#beforeStartingVertx(io.vertx.core.VertxOptions)}
+ * * retrieve the vert.x instance created by the "run" or "bare" command by
+ * overriding {@link io.vertx.core.Launcher#afterStartingVertx(io.vertx.core.Vertx)}
+ * * configure the default verticle and command with
+ * {@link io.vertx.core.impl.launcher.VertxCommandLauncher#getMainVerticle()} and
+ * {@link io.vertx.core.impl.launcher.VertxCommandLauncher#getDefaultCommand()}
+ * * add / remove commands using {@link io.vertx.core.impl.launcher.VertxCommandLauncher#register(java.lang.Class)}
+ * and {@link io.vertx.core.impl.launcher.VertxCommandLauncher#unregister(java.lang.String)}
+ *
  */
 @Document(fileName = "index.adoc")
-@io.vertx.codegen.annotations.GenModule(name = "vertx")
+@io.vertx.codegen.annotations.ModuleGen(name = "vertx", groupPackage = "io.vertx")
 package io.vertx.core;
 
 import io.vertx.docgen.Document;

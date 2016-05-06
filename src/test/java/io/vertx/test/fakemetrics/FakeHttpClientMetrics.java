@@ -67,13 +67,26 @@ public class FakeHttpClientMetrics extends FakeMetricsBase implements HttpClient
   }
 
   @Override
+  public HttpClientMetric responsePushed(SocketMetric socketMetric, SocketAddress localAddress, SocketAddress remoteAddress, HttpClientRequest request) {
+    HttpClientMetric metric = new HttpClientMetric(request, socketMetric);
+    requests.put(request, metric);
+    return metric;
+  }
+
+  @Override
+  public void requestReset(HttpClientMetric requestMetric) {
+    requestMetric.failed.set(true);
+    requests.remove(requestMetric.request);
+  }
+
+  @Override
   public void responseEnd(HttpClientMetric requestMetric, HttpClientResponse response) {
     requests.remove(requestMetric.request);
   }
 
   @Override
-  public SocketMetric connected(SocketAddress remoteAddress) {
-    return new SocketMetric(remoteAddress);
+  public SocketMetric connected(SocketAddress remoteAddress, String remoteName) {
+    return new SocketMetric(remoteAddress, remoteName);
   }
 
   @Override

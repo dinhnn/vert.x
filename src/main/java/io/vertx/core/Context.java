@@ -16,6 +16,9 @@
 
 package io.vertx.core;
 
+import io.vertx.codegen.annotations.Fluent;
+import io.vertx.codegen.annotations.GenIgnore;
+import io.vertx.codegen.annotations.Nullable;
 import io.vertx.codegen.annotations.VertxGen;
 import io.vertx.core.impl.ContextImpl;
 import io.vertx.core.json.JsonObject;
@@ -100,6 +103,35 @@ public interface Context {
   void runOnContext(Handler<Void> action);
 
   /**
+   * Safely execute some blocking code.
+   * <p>
+   * Executes the blocking code in the handler {@code blockingCodeHandler} using a thread from the worker pool.
+   * <p>
+   * When the code is complete the handler {@code resultHandler} will be called with the result on the original context
+   * (e.g. on the original event loop of the caller).
+   * <p>
+   * A {@code Future} instance is passed into {@code blockingCodeHandler}. When the blocking code successfully completes,
+   * the handler should call the {@link Future#complete} or {@link Future#complete(Object)} method, or the {@link Future#fail}
+   * method if it failed.
+   *
+   * @param blockingCodeHandler  handler representing the blocking code to run
+   * @param resultHandler  handler that will be called when the blocking code is complete
+   * @param ordered  if true then if executeBlocking is called several times on the same context, the executions
+   *                 for that context will be executed serially, not in parallel. if false then they will be no ordering
+   *                 guarantees
+   * @param <T> the type of the result
+   */
+  <T> void executeBlocking(Handler<Future<T>> blockingCodeHandler, boolean ordered, Handler<AsyncResult<T>> resultHandler);
+
+  /**
+   * Invoke {@link #executeBlocking(Handler, boolean, Handler)} with order = true.
+   * @param blockingCodeHandler  handler representing the blocking code to run
+   * @param resultHandler  handler that will be called when the blocking code is complete
+   * @param <T> the type of the result
+   */
+  <T> void executeBlocking(Handler<Future<T>> blockingCodeHandler, Handler<AsyncResult<T>> resultHandler);
+
+  /**
    * If the context is associated with a Verticle deployment, this returns the deployment ID of that deployment.
    *
    * @return the deployment ID of the deployment or null if not a Verticle deployment
@@ -112,7 +144,7 @@ public interface Context {
    *
    * @return the configuration of the deployment or null if not a Verticle deployment
    */
-  JsonObject config();
+  @Nullable JsonObject config();
 
   /**
    * The process args
@@ -185,5 +217,29 @@ public interface Context {
    * to this context
    */
   int getInstanceCount();
+
+  /**
+   * Set an exception handler called when the context runs an action throwing an uncaught throwable.<p/>
+   *
+   * When this handler is called, {@link Vertx#currentContext()} will return this context.
+   *
+   * @param handler the exception handler
+   * @return a reference to this, so the API can be used fluently
+   */
+  @Fluent
+  Context exceptionHandler(@Nullable Handler<Throwable> handler);
+
+  /**
+   * @return the current exception handler of this context
+   */
+  @Nullable
+  @GenIgnore
+  Handler<Throwable> exceptionHandler();
+
+  @GenIgnore
+  void addCloseHook(Closeable hook);
+
+  @GenIgnore
+  void removeCloseHook(Closeable hook);
 
 }

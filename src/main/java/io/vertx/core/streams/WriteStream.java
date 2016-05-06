@@ -17,6 +17,7 @@
 package io.vertx.core.streams;
 
 import io.vertx.codegen.annotations.Fluent;
+import io.vertx.codegen.annotations.Nullable;
 import io.vertx.codegen.annotations.VertxGen;
 import io.vertx.core.Handler;
 
@@ -53,6 +54,21 @@ public interface WriteStream<T> extends StreamBase {
   WriteStream<T> write(T data);
 
   /**
+   * Ends the stream.
+   * <p>
+   * Once the stream has ended, it cannot be used any more.
+   */
+  void end();
+
+  /**
+   * Same as {@link #end()} but writes some data to the stream before ending.
+   */
+  default void end(T t) {
+    write(t);
+    end();
+  }
+
+  /**
    * Set the maximum size of the write queue to {@code maxSize}. You will still be able to write to the stream even
    * if there is more than {@code maxSize} bytes in the write queue. This is used as an indicator by classes such as
    * {@code Pump} to provide flow control.
@@ -79,6 +95,6 @@ public interface WriteStream<T> extends StreamBase {
    * @return a reference to this, so the API can be used fluently
    */
   @Fluent
-  WriteStream<T> drainHandler(Handler<Void> handler);
+  WriteStream<T> drainHandler(@Nullable Handler<Void> handler);
 
 }

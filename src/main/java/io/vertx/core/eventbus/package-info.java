@@ -179,6 +179,10 @@
  *
  * include::override/eventbus_headers.adoc[]
  *
+ * ==== Message ordering
+ *
+ * Vert.x will deliver messages to any particular handler in the same order they were sent from any particular sender.
+ *
  * ==== The Message object
  *
  * The object you receive in a message handler is a {@link io.vertx.core.eventbus.Message}.
@@ -187,14 +191,14 @@
  *
  * The headers of the message are available with {@link io.vertx.core.eventbus.Message#headers}.
  *
- * ==== Replying to messages
+ * ==== Acknowledging messages / sending replies
  *
- * Sometimes after you send a message you want to receive a reply from the recipient.
- * This is known as the *request-response pattern*.
+ * When using {@link io.vertx.core.eventbus.EventBus#send} the event bus attempts to deliver the message to a
+ * {@link io.vertx.core.eventbus.MessageConsumer} registered with the event bus.
  *
- * To do this you can specify a reply handler when sending the message.
+ * In some cases it's useful for the sender to know when the consumer has received the message and "processed" it.
  *
- * When the receiver receives the message they can reply to it by calling {@link io.vertx.core.eventbus.Message#reply}.
+ * To acknowledge that the message has been processed the consumer can reply to the message by calling {@link io.vertx.core.eventbus.Message#reply}.
  *
  * When this happens it causes a reply to be sent back to the sender and the reply handler is invoked with the reply.
  *
@@ -214,8 +218,19 @@
  * {@link examples.EventBusExamples#example9}
  * ----
  *
- * The replies themselves can also be replied to so you can create a dialog between two different parties
- * consisting of multiple rounds.
+ * The reply can contain a message body which can contain useful information.
+ *
+ * What the "processing" actually means is application defined and depends entirely on what the message consumer does
+ * and is not something that the Vert.x event bus itself knows or cares about.
+ *
+ * Some examples:
+ *
+ * * A simple message consumer which implements a service which returns the time of the day would acknowledge with a message
+ * containing the time of day in the reply body
+ * * A message consumer which implements a persistent queue, might acknowledge with `true` if the message was successfully
+ * persisted in storage, or `false` if not.
+ * * A message consumer which processes an order might acknowledge with `true` when the order has been successfully processed
+ * so it can be deleted from the database
  *
  * ==== Sending with timeouts
  *
@@ -265,6 +280,38 @@
  * If you're registering event bus handlers from inside verticles, those handlers will be automatically unregistered
  * when the verticle is undeployed.
  *
+ * == Configuring the event bus
+ *
+ * The event bus can be configured. It is particularly useful when the event bus is clustered. Under the hood
+ * the event bus uses TCP connections to send and receive message, so the
+ * {@link io.vertx.core.eventbus.EventBusOptions} let you configure all aspects of these TCP connections. As
+ * the event bus acts as a server and client, the configuration is close to
+ * {@link io.vertx.core.net.NetClientOptions} and {@link io.vertx.core.net.NetServerOptions}.
+ *
+ * [source,$lang]
+ * ----
+ * {@link examples.EventBusExamples#example13}
+ * ----
+ *
+ * The previous snippet depicts how you can use SSL connections for the event bus, instead of plain TCP
+ * connections.
+ *
+ * **WARNING**: to enforce the security in clustered mode, you **must** configure the
+ * cluster manager to use encryption or enforce security. Refer to the documentation of the cluster
+ * manager for further details.
+ *
+ * The event bus configuration needs to be consistent in all the cluster nodes.
+ *
+ * The {@link io.vertx.core.eventbus.EventBusOptions} also lets you specify whether or not the event bus is
+ * clustered, the port and host, as you would do with {@link io.vertx.core.VertxOptions#setClustered(boolean)},
+ *  {@link io.vertx.core.VertxOptions#getClusterHost()} and {@link io.vertx.core.VertxOptions#getClusterPort()}.
+ *
+ * When used in containers, you can also configure the public host and port:
+ *
+ * [source,$lang]
+ * ----
+ * {@link examples.EventBusExamples#example14}
+ * ----
  */
 @Document(fileName = "eventbus.adoc")
 package io.vertx.core.eventbus;

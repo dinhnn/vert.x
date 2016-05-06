@@ -55,8 +55,8 @@ public class HandlerManager<T> {
     return handlers == null ? null : handlers.chooseHandler();
   }
 
-  public synchronized void addHandler(Handler<T> handler, ContextImpl context) {
-    EventLoop worker = context.eventLoop();
+  public synchronized void addHandler(T handler, ContextImpl context) {
+    EventLoop worker = context.nettyEventLoop();
     availableWorkers.addWorker(worker);
     Handlers<T> handlers = new Handlers<>();
     Handlers<T> prev = handlerMap.putIfAbsent(worker, handlers);
@@ -67,8 +67,8 @@ public class HandlerManager<T> {
     hasHandlers = true;
   }
 
-  public synchronized void removeHandler(Handler<T> handler, ContextImpl context) {
-    EventLoop worker = context.eventLoop();
+  public synchronized void removeHandler(T handler, ContextImpl context) {
+    EventLoop worker = context.nettyEventLoop();
     Handlers<T> handlers = handlerMap.get(worker);
     if (!handlers.removeHandler(new HandlerHolder<>(context, handler))) {
       throw new IllegalStateException("Can't find handler");
@@ -76,7 +76,7 @@ public class HandlerManager<T> {
     if (handlers.isEmpty()) {
       handlerMap.remove(worker);
     }
-    if (handlers.isEmpty()) {
+    if (handlerMap.isEmpty()) {
       hasHandlers = false;
     }
     //Available workers does it's own reference counting -since workers can be shared across different Handlers

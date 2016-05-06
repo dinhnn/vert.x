@@ -31,7 +31,7 @@ public class DeploymentOptionsConverter {
       obj.setConfig(((JsonObject)json.getValue("config")).copy());
     }
     if (json.getValue("extraClasspath") instanceof JsonArray) {
-      java.util.List<java.lang.String> list = new java.util.ArrayList<>();
+      java.util.ArrayList<java.lang.String> list = new java.util.ArrayList<>();
       json.getJsonArray("extraClasspath").forEach( item -> {
         if (item instanceof String)
           list.add((String)item);
@@ -45,7 +45,7 @@ public class DeploymentOptionsConverter {
       obj.setInstances(((Number)json.getValue("instances")).intValue());
     }
     if (json.getValue("isolatedClasses") instanceof JsonArray) {
-      java.util.List<java.lang.String> list = new java.util.ArrayList<>();
+      java.util.ArrayList<java.lang.String> list = new java.util.ArrayList<>();
       json.getJsonArray("isolatedClasses").forEach( item -> {
         if (item instanceof String)
           list.add((String)item);
@@ -55,11 +55,20 @@ public class DeploymentOptionsConverter {
     if (json.getValue("isolationGroup") instanceof String) {
       obj.setIsolationGroup((String)json.getValue("isolationGroup"));
     }
+    if (json.getValue("maxWorkerExecuteTime") instanceof Number) {
+      obj.setMaxWorkerExecuteTime(((Number)json.getValue("maxWorkerExecuteTime")).longValue());
+    }
     if (json.getValue("multiThreaded") instanceof Boolean) {
       obj.setMultiThreaded((Boolean)json.getValue("multiThreaded"));
     }
     if (json.getValue("worker") instanceof Boolean) {
       obj.setWorker((Boolean)json.getValue("worker"));
+    }
+    if (json.getValue("workerPoolName") instanceof String) {
+      obj.setWorkerPoolName((String)json.getValue("workerPoolName"));
+    }
+    if (json.getValue("workerPoolSize") instanceof Number) {
+      obj.setWorkerPoolSize(((Number)json.getValue("workerPoolSize")).intValue());
     }
   }
 
@@ -86,7 +95,12 @@ public class DeploymentOptionsConverter {
     if (obj.getIsolationGroup() != null) {
       json.put("isolationGroup", obj.getIsolationGroup());
     }
+    json.put("maxWorkerExecuteTime", obj.getMaxWorkerExecuteTime());
     json.put("multiThreaded", obj.isMultiThreaded());
     json.put("worker", obj.isWorker());
+    if (obj.getWorkerPoolName() != null) {
+      json.put("workerPoolName", obj.getWorkerPoolName());
+    }
+    json.put("workerPoolSize", obj.getWorkerPoolSize());
   }
 }

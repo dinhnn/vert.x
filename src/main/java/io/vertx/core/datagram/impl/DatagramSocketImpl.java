@@ -32,18 +32,16 @@ import io.vertx.core.datagram.PacketWritestream;
 import io.vertx.core.impl.Arguments;
 import io.vertx.core.impl.ContextImpl;
 import io.vertx.core.impl.VertxInternal;
+import io.vertx.core.net.NetworkOptions;
 import io.vertx.core.net.SocketAddress;
 import io.vertx.core.net.impl.ConnectionBase;
 import io.vertx.core.net.impl.SocketAddressImpl;
 import io.vertx.core.spi.metrics.DatagramSocketMetrics;
 import io.vertx.core.spi.metrics.Metrics;
 import io.vertx.core.spi.metrics.MetricsProvider;
+import io.vertx.core.spi.metrics.NetworkMetrics;
 
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.NetworkInterface;
-import java.net.SocketException;
-import java.net.UnknownHostException;
+import java.net.*;
 import java.util.Objects;
 
 /**
@@ -55,15 +53,20 @@ public class DatagramSocketImpl extends ConnectionBase implements DatagramSocket
 
   public DatagramSocketImpl(VertxInternal vertx, DatagramSocketOptions options) {
     super(vertx, createChannel(options.isIpV6() ? io.vertx.core.datagram.impl.InternetProtocolFamily.IPv6 : io.vertx.core.datagram.impl.InternetProtocolFamily.IPv4,
-          new DatagramSocketOptions(options)), vertx.getOrCreateContext(), vertx.metricsSPI().createMetrics(null, options));
+          new DatagramSocketOptions(options)), vertx.getOrCreateContext(), options);
     ContextImpl creatingContext = vertx.getContext();
     if (creatingContext != null && creatingContext.isMultiThreadedWorkerContext()) {
       throw new IllegalStateException("Cannot use DatagramSocket in a multi-threaded worker verticle");
     }
     channel().config().setOption(ChannelOption.DATAGRAM_CHANNEL_ACTIVE_ON_REGISTRATION, true);
-    context.eventLoop().register(channel);
+    context.nettyEventLoop().register(channel);
     channel.pipeline().addLast("handler", new DatagramServerHandler(this));
     channel().config().setMaxMessagesPerRead(1);
+  }
+
+  @Override
+  protected NetworkMetrics createMetrics(NetworkOptions options) {
+    return vertx.metricsSPI().createMetrics(this, (DatagramSocketOptions) options);
   }
 
   @Override
@@ -177,14 +180,20 @@ public class DatagramSocketImpl extends ConnectionBase implements DatagramSocket
 
   private DatagramSocket listen(SocketAddress local, Handler<AsyncResult<DatagramSocket>> handler) {
     Objects.requireNonNull(handler, "no null handler accepted");
-    InetSocketAddress is = new InetSocketAddress(local.host(), local.port());
-    ChannelFuture future = channel().bind(is);
-    addListener(future, ar -> {
-      if (ar.succeeded()) {
-        ((DatagramSocketMetrics) metrics).listening(localAddress());
+    vertx.resolveHostname(local.host(), res -> {
+      if (res.succeeded()) {
+        ChannelFuture future = channel().bind(new InetSocketAddress(res.result(), local.port()));
+        addListener(future, ar -> {
+          if (ar.succeeded()) {
+            ((DatagramSocketMetrics) metrics).listening(local.host(), localAddress());
+          }
+          handler.handle(ar);
+        });
+      } else {
+        handler.handle(Future.failedFuture(res.cause()));
       }
-      handler.handle(ar);
     });
+
     return this;
   }
 
@@ -210,14 +219,30 @@ public class DatagramSocketImpl extends ConnectionBase implements DatagramSocket
   @Override
   @SuppressWarnings("unchecked")
   public DatagramSocket send(Buffer packet, int port, String host, Handler<AsyncResult<DatagramSocket>> handler) {
+    Objects.requireNonNull(packet, "no null packet accepted");
     Objects.requireNonNull(host, "no null host accepted");
-    ChannelFuture future = channel().writeAndFlush(new DatagramPacket(packet.getByteBuf(), new InetSocketAddress(host, port)));
-    addListener(future, handler);
+    InetSocketAddress addr = InetSocketAddress.createUnresolved(host, port);
+    if (addr.isUnresolved()) {
+      vertx.resolveHostname(host, res -> {
+        if (res.succeeded()) {
+          doSend(packet, new InetSocketAddress(res.result(), port), handler);
+        } else {
+          handler.handle(Future.failedFuture(res.cause()));
+        }
+      });
+    } else {
+      // If it's immediately resolved it means it was just an IP address so no need to async resolve
+      doSend(packet, addr, handler);
+    }
     if (metrics.isEnabled()) {
       metrics.bytesWritten(null, new SocketAddressImpl(port, host), packet.length());
     }
-
     return this;
+  }
+
+  private void doSend(Buffer packet, InetSocketAddress addr, Handler<AsyncResult<DatagramSocket>> handler) {
+    ChannelFuture future = channel().writeAndFlush(new DatagramPacket(packet.getByteBuf(), addr));
+    addListener(future, handler);
   }
 
   @Override

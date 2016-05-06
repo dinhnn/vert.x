@@ -155,9 +155,9 @@ public abstract class FileResolverTestBase extends VertxTestBase {
   public void testRecursivelyUnpack() throws Exception {
     File file = resolver.resolveFile(webRoot + "/subdir");
     assertTrue(file.exists());
-    File sub = new File(new File(file, "subdir2"), "subfile2.html");
+    File sub = new File(file, "subfile.html");
     assertTrue(sub.exists());
-    assertEquals("<html><body>subfile2</body></html>", readFile(sub));
+    assertEquals("<html><body>subfile</body></html>", readFile(sub));
   }
 
   @Test
@@ -171,7 +171,7 @@ public abstract class FileResolverTestBase extends VertxTestBase {
 
   @Test
   public void testDeleteCacheDir() throws Exception {
-    Vertx vertx2 = Vertx.vertx();
+    Vertx vertx2 = vertx();
     FileResolver resolver2 = new FileResolver(vertx2);
     File file = resolver2.resolveFile(webRoot + "/somefile.html");
     assertTrue(file.exists());
@@ -188,7 +188,7 @@ public abstract class FileResolverTestBase extends VertxTestBase {
 
   @Test
   public void testCacheDirDeletedOnVertxClose() {
-    VertxInternal vertx2 = (VertxInternal)Vertx.vertx();
+    VertxInternal vertx2 = (VertxInternal)vertx();
     File file = vertx2.resolveFile(webRoot + "/somefile.html");
     assertTrue(file.exists());
     File cacheDir = file.getParentFile().getParentFile();

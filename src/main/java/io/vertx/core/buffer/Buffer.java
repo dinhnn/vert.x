@@ -21,10 +21,13 @@ import io.vertx.codegen.annotations.Fluent;
 import io.vertx.codegen.annotations.GenIgnore;
 import io.vertx.codegen.annotations.VertxGen;
 import io.vertx.core.ServiceHelper;
+import io.vertx.core.json.JsonArray;
+import io.vertx.core.json.JsonObject;
 import io.vertx.core.shareddata.impl.ClusterSerializable;
 import io.vertx.core.spi.BufferFactory;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.Charset;
 
 /**
  * Most data is shuffled around inside Vert.x using buffers.
@@ -94,7 +97,18 @@ public interface Buffer extends ClusterSerializable {
   }
 
   /**
+   * <p>
    * Create a new buffer from a Netty {@code ByteBuf}.
+   * <i>Note that</i> the returned buffer is backed by given Netty ByteBuf,
+   * so changes in the returned buffer are reflected in given Netty ByteBuf, and vice-versa.
+   * </p>
+   * <p>
+   * For example, both buffers in the code below share their data:
+   * </p>
+   * <pre>
+   *   Buffer src = Buffer.buffer();
+   *   Buffer clone = Buffer.buffer(src.getByteBuf());
+   * </pre>
    *
    * @param byteBuf  the Netty ByteBuf
    * @return the buffer
@@ -105,9 +119,30 @@ public interface Buffer extends ClusterSerializable {
   }
 
   /**
+   * Returns a {@code String} representation of the Buffer with the {@code UTF-8 }encoding
+   */
+  String toString();
+
+  /**
    * Returns a {@code String} representation of the Buffer with the encoding specified by {@code enc}
    */
   String toString(String enc);
+
+  /**
+   * Returns a {@code String} representation of the Buffer with the encoding specified by {@code enc}
+   */
+  @GenIgnore
+  String toString(Charset enc);
+
+  /**
+   * Returns a Json object representation of the Buffer
+   */
+  JsonObject toJsonObject();
+
+  /**
+   * Returns a Json array representation of the Buffer
+   */
+  JsonArray toJsonArray();
 
   /**
    * Returns the {@code byte} at position {@code pos} in the Buffer.
@@ -184,6 +219,44 @@ public interface Buffer extends ClusterSerializable {
    */
   @GenIgnore
   byte[] getBytes(int start, int end);
+
+  /**
+   * Transfers the content of the Buffer into a {@code byte[]}.
+   *
+   * @param dst the destination byte array
+   * @throws IndexOutOfBoundsException if the content of the Buffer cannot fit into the destination byte array
+   */
+  @GenIgnore
+  Buffer getBytes(byte[] dst);
+
+  /**
+   * Transfers the content of the Buffer into a {@code byte[]} at the specific destination.
+   *
+   * @param dst the destination byte array
+   * @throws IndexOutOfBoundsException if the content of the Buffer cannot fit into the destination byte array
+   */
+  @GenIgnore
+  Buffer getBytes(byte[] dst, int dstIndex);
+
+  /**
+   * Transfers the content of the Buffer starting at position {@code start} and ending at position {@code end - 1}
+   * into a {@code byte[]}.
+   *
+   * @param dst the destination byte array
+   * @throws IndexOutOfBoundsException if the content of the Buffer cannot fit into the destination byte array
+   */
+  @GenIgnore
+  Buffer getBytes(int start, int end, byte[] dst);
+
+  /**
+   * Transfers the content of the Buffer starting at position {@code start} and ending at position {@code end - 1}
+   * into a {@code byte[]} at the specific destination.
+   *
+   * @param dst the destination byte array
+   * @throws IndexOutOfBoundsException if the content of the Buffer cannot fit into the destination byte array
+   */
+  @GenIgnore
+  Buffer getBytes(int start, int end, byte[] dst, int dstIndex);
 
   /**
    * Returns a copy of a sub-sequence the Buffer as a {@link io.vertx.core.buffer.Buffer} starting at position {@code start}
@@ -456,6 +529,7 @@ public interface Buffer extends ClusterSerializable {
 
   /**
    * Returns the Buffer as a Netty {@code ByteBuf}.<p>
+   * The returned buffer is a duplicate.<p>
    * This method is meant for internal use only.
    */
   @GenIgnore

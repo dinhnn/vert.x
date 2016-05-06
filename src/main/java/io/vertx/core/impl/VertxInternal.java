@@ -21,6 +21,7 @@ import io.netty.channel.EventLoopGroup;
 import io.vertx.core.AsyncResult;
 import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
+import io.vertx.core.WorkerExecutor;
 import io.vertx.core.http.impl.HttpServerImpl;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.net.impl.NetServerImpl;
@@ -29,6 +30,7 @@ import io.vertx.core.spi.cluster.ClusterManager;
 import io.vertx.core.spi.metrics.VertxMetrics;
 
 import java.io.File;
+import java.net.InetAddress;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 
@@ -45,6 +47,8 @@ public interface VertxInternal extends Vertx {
   ContextImpl getOrCreateContext();
 
   EventLoopGroup getEventLoopGroup();
+
+  EventLoopGroup getAcceptorEventLoopGroup();
 
   ExecutorService getWorkerPool();
 
@@ -63,12 +67,21 @@ public interface VertxInternal extends Vertx {
   /**
    * @return event loop context
    */
-  EventLoopContext createEventLoopContext(String deploymentID, JsonObject config, ClassLoader tccl);
+  EventLoopContext createEventLoopContext(String deploymentID, WorkerPool workerPool, JsonObject config, ClassLoader tccl);
 
   /**
    * @return worker loop context
    */
-  ContextImpl createWorkerContext(boolean multiThreaded, String deploymentID, JsonObject config, ClassLoader tccl);
+  ContextImpl createWorkerContext(boolean multiThreaded, String deploymentID, WorkerPool pool, JsonObject config, ClassLoader tccl);
+
+  @Override
+  NamedWorkerExecutor createWorkerExecutor(String name);
+
+  @Override
+  NamedWorkerExecutor createWorkerExecutor(String name, int poolSize);
+
+  @Override
+  NamedWorkerExecutor createWorkerExecutor(String name, int poolSize, long maxExecuteTime);
 
   void simulateKill();
 
@@ -87,5 +100,13 @@ public interface VertxInternal extends Vertx {
   <T> void executeBlockingInternal(Action<T> action, Handler<AsyncResult<T>> resultHandler);
 
   ClusterManager getClusterManager();
+
+  /**
+   * Resolve an hostname (e.g. {@code vertx.io} into the first found A (IPv4) or AAAA (IPv6) record.
+   *
+   * @param hostname the hostname to resolve
+   * @param resultHandler the result handler
+   */
+  void resolveHostname(String hostname, Handler<AsyncResult<InetAddress>> resultHandler);
 
 }

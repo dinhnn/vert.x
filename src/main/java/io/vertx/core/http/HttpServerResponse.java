@@ -19,9 +19,9 @@ package io.vertx.core.http;
 import io.vertx.codegen.annotations.CacheReturn;
 import io.vertx.codegen.annotations.Fluent;
 import io.vertx.codegen.annotations.GenIgnore;
+import io.vertx.codegen.annotations.Nullable;
 import io.vertx.codegen.annotations.VertxGen;
 import io.vertx.core.AsyncResult;
-import io.vertx.core.Future;
 import io.vertx.core.Handler;
 import io.vertx.core.MultiMap;
 import io.vertx.core.buffer.Buffer;
@@ -191,7 +191,7 @@ public interface HttpServerResponse extends WriteStream<Buffer> {
    * @return a reference to this, so the API can be used fluently
    */
   @Fluent
-  HttpServerResponse closeHandler(Handler<Void> handler);
+  HttpServerResponse closeHandler(@Nullable Handler<Void> handler);
 
   /**
    * Write a {@link String} to the response body, encoded using the encoding {@code enc}.
@@ -353,14 +353,12 @@ public interface HttpServerResponse extends WriteStream<Buffer> {
   /**
    * Provide a handler that will be called just before the headers are written to the wire.<p>
    * This provides a hook allowing you to add any more headers or do any more operations before this occurs.
-   * The handler will be passed a future, when you've completed the work you want to do you should complete (or fail)
-   * the future. This can be done after the handler has returned.
    *
    * @param handler  the handler
    * @return a reference to this, so the API can be used fluently
    */
   @Fluent
-  HttpServerResponse headersEndHandler(Handler<Future<Void>> handler);
+  HttpServerResponse headersEndHandler(@Nullable Handler<Void> handler);
 
   /**
    * Provide a handler that will be called just before the last part of the body is written to the wire
@@ -371,6 +369,89 @@ public interface HttpServerResponse extends WriteStream<Buffer> {
    * @return a reference to this, so the API can be used fluently
    */
   @Fluent
-  HttpServerResponse bodyEndHandler(Handler<Void> handler);
+  HttpServerResponse bodyEndHandler(@Nullable Handler<Void> handler);
 
+  /**
+   * @return the total number of bytes written for the body of the response.
+   */
+  long bytesWritten();
+
+  /**
+   * @return the id of the stream of this response, {@literal -1} for HTTP/1.x
+   */
+  int streamId();
+
+  /**
+   * Like {@link #push(HttpMethod, String, String, MultiMap, Handler)} with no headers.
+   */
+  HttpServerResponse push(HttpMethod method, String host, String path, Handler<AsyncResult<HttpServerResponse>> handler);
+
+  /**
+   * Like {@link #push(HttpMethod, String, String, MultiMap, Handler)} with the host copied from the current request.
+   */
+  HttpServerResponse push(HttpMethod method, String path, MultiMap headers, Handler<AsyncResult<HttpServerResponse>> handler);
+
+  /**
+   * Like {@link #push(HttpMethod, String, String, MultiMap, Handler)} with the host copied from the current request.
+   */
+  @Fluent
+  HttpServerResponse push(HttpMethod method, String path, Handler<AsyncResult<HttpServerResponse>> handler);
+
+  /**
+   * Push a response to the client.<p/>
+   *
+   * The {@code handler} will be notified with a <i>success</i> when the push can be sent and with
+   * a <i>failure</i> when the client has disabled push or reset the push before it has been sent.<p/>
+   *
+   * The {@code handler} may be queued if the client has reduced the maximum number of streams the server can push
+   * concurrently.<p/>
+   *
+   * Push can be sent only for peer initiated streams and if the response is not ended.
+   *
+   * @param method the method of the promised request
+   * @param host the host of the promised request
+   * @param path the path of the promised request
+   * @param headers the headers of the promised request
+   * @param handler the handler notified when the response can be written
+   * @return a reference to this, so the API can be used fluently
+   */
+  @Fluent
+  HttpServerResponse push(HttpMethod method, String host, String path, MultiMap headers, Handler<AsyncResult<HttpServerResponse>> handler);
+
+  /**
+   * Reset this HTTP/2 stream with the error code {@code 0}.
+   */
+  default void reset() {
+    reset(0L);
+  }
+
+  /**
+   * Reset this HTTP/2 stream with the error {@code code}.
+   *
+   * @param code the error code
+   */
+  void reset(long code);
+
+  /**
+   * Write an HTTP/2 frame to the response, allowing to extend the HTTP/2 protocol.<p>
+   *
+   * The frame is sent immediatly and is not subject to flow control.
+   *
+   * @param type the 8-bit frame type
+   * @param flags the 8-bit frame flags
+   * @param payload the frame payload
+   * @return a reference to this, so the API can be used fluently
+   */
+  @Fluent
+  HttpServerResponse writeFrame(int type, int flags, Buffer payload);
+
+  /**
+   * Like {@link #writeFrame(int, int, Buffer)} but with an {@link HttpFrame}.
+   *
+   * @param frame the frame to write
+   */
+  @Fluent
+  default HttpServerResponse writeFrame(HttpFrame frame) {
+    return writeFrame(frame.type(), frame.flags(), frame.payload());
+  }
 }

@@ -25,18 +25,14 @@ import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.HttpClientOptions;
 import io.vertx.core.http.HttpClientRequest;
 import io.vertx.core.http.HttpClientResponse;
+import io.vertx.core.http.HttpMethod;
 import io.vertx.core.http.HttpServer;
 import io.vertx.core.http.HttpServerOptions;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.http.ServerWebSocket;
 import io.vertx.core.http.WebSocket;
-import io.vertx.core.spi.metrics.DatagramSocketMetrics;
-import io.vertx.core.spi.metrics.EventBusMetrics;
-import io.vertx.core.spi.metrics.HttpClientMetrics;
-import io.vertx.core.spi.metrics.HttpServerMetrics;
-import io.vertx.core.spi.metrics.TCPMetrics;
-import io.vertx.core.spi.metrics.VertxMetrics;
+import io.vertx.core.spi.metrics.*;
 import io.vertx.core.net.NetClient;
 import io.vertx.core.net.NetClientOptions;
 import io.vertx.core.net.NetServer;
@@ -95,6 +91,11 @@ public class DummyVertxMetrics implements VertxMetrics {
   }
 
   @Override
+  public <P> PoolMetrics<?> createMetrics(P pool, String poolName, int maxPoolSize) {
+    return new DummyWorkerPoolMetrics();
+  }
+
+  @Override
   public void close() {
   }
 
@@ -119,7 +120,7 @@ public class DummyVertxMetrics implements VertxMetrics {
     }
 
     @Override
-    public Void handlerRegistered(String address, boolean replyHandler) {
+    public Void handlerRegistered(String address, String repliedAddress) {
       return null;
     }
 
@@ -165,6 +166,15 @@ public class DummyVertxMetrics implements VertxMetrics {
     }
 
     @Override
+    public void requestReset(Void requestMetric) {
+    }
+
+    @Override
+    public Void responsePushed(Void socketMetric, HttpMethod method, String uri, HttpServerResponse response) {
+      return null;
+    }
+
+    @Override
     public void responseEnd(Void requestMetric, HttpServerResponse response) {
     }
 
@@ -174,7 +184,7 @@ public class DummyVertxMetrics implements VertxMetrics {
     }
 
     @Override
-    public Void connected(SocketAddress remoteAddress) {
+    public Void connected(SocketAddress remoteAddress, String remoteName) {
       return null;
     }
 
@@ -221,11 +231,20 @@ public class DummyVertxMetrics implements VertxMetrics {
     }
 
     @Override
+    public Void responsePushed(Void socketMetric, SocketAddress localAddress, SocketAddress remoteAddress, HttpClientRequest request) {
+      return null;
+    }
+
+    @Override
+    public void requestReset(Void requestMetric) {
+    }
+
+    @Override
     public void responseEnd(Void requestMetric, HttpClientResponse response) {
     }
 
     @Override
-    public Void connected(SocketAddress remoteAddress) {
+    public Void connected(SocketAddress remoteAddress, String remoteName) {
       return null;
     }
 
@@ -267,7 +286,7 @@ public class DummyVertxMetrics implements VertxMetrics {
   protected class DummyTCPMetrics implements TCPMetrics<Void> {
 
     @Override
-    public Void connected(SocketAddress remoteAddress) {
+    public Void connected(SocketAddress remoteAddress, String remoteName) {
       return null;
     }
 
@@ -300,7 +319,7 @@ public class DummyVertxMetrics implements VertxMetrics {
   protected class DummyDatagramMetrics implements DatagramSocketMetrics {
 
     @Override
-    public void listening(SocketAddress localAddress) {
+    public void listening(String localName, SocketAddress localAddress) {
     }
 
     @Override
@@ -322,6 +341,35 @@ public class DummyVertxMetrics implements VertxMetrics {
     @Override
     public boolean isEnabled() {
       return false;
+    }
+  }
+
+  private class DummyWorkerPoolMetrics implements PoolMetrics<Void> {
+
+    @Override
+    public Void taskSubmitted() {
+      return null;
+    }
+
+    @Override
+    public void taskRejected(Void task) {
+    }
+
+    @Override
+    public void taskBegin(Void task) {
+    }
+
+    @Override
+    public void taskEnd(Void task, boolean succeeded) {
+    }
+
+    @Override
+    public boolean isEnabled() {
+      return false;
+    }
+
+    @Override
+    public void close() {
     }
   }
 }

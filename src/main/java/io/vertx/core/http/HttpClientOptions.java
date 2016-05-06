@@ -21,10 +21,15 @@ import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.net.ClientOptionsBase;
 import io.vertx.core.net.JksOptions;
-import io.vertx.core.net.PemTrustOptions;
 import io.vertx.core.net.PemKeyCertOptions;
+import io.vertx.core.net.PemTrustOptions;
 import io.vertx.core.net.PfxOptions;
+import io.vertx.core.net.SSLEngine;
 import io.vertx.core.net.TCPSSLOptions;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * Options describing how an {@link HttpClient} will make connections.
@@ -79,6 +84,26 @@ public class HttpClientOptions extends ClientOptionsBase {
    */
   public static final HttpVersion DEFAULT_PROTOCOL_VERSION = HttpVersion.HTTP_1_1;
 
+  /**
+   * Default max HTTP chunk size = 8192
+   */
+  public static final int DEFAULT_MAX_CHUNK_SIZE = 8192;
+
+  /**
+   * Default max wait queue size = -1 (unbounded)
+   */
+  public static final int DEFAULT_MAX_WAIT_QUEUE_SIZE = -1;
+
+  /**
+   * Default Application-Layer Protocol Negotiation versions = [] (automatic according to protocol version)
+   */
+  public static final List<HttpVersion> DEFAULT_ALPN_VERSIONS = Collections.emptyList();
+
+  /**
+   * Default using HTTP/1.1 upgrade for establishing an <i>h2C</i> connection = true
+   */
+  public static final boolean DEFAULT_H2C_UPGRADE = true;
+
   private boolean verifyHost = true;
   private int maxPoolSize;
   private boolean keepAlive;
@@ -88,6 +113,16 @@ public class HttpClientOptions extends ClientOptionsBase {
   private String defaultHost;
   private int defaultPort;
   private HttpVersion protocolVersion;
+  private int maxChunkSize;
+  private int maxWaitQueueSize;
+  private Http2Settings initialSettings;
+  private List<HttpVersion> alpnVersions;
+  private boolean h2cUpgrade;
+
+  private String proxyHost;
+  private int proxyPort;
+  private String proxyUsername;
+  private String proxyPassword;
 
   /**
    * Default constructor
@@ -113,6 +148,15 @@ public class HttpClientOptions extends ClientOptionsBase {
     this.defaultHost = other.defaultHost;
     this.defaultPort = other.defaultPort;
     this.protocolVersion = other.protocolVersion;
+    this.maxChunkSize = other.maxChunkSize;
+    this.maxWaitQueueSize = other.maxWaitQueueSize;
+    this.initialSettings = other.initialSettings != null ? new Http2Settings(other.initialSettings) : null;
+    this.alpnVersions = other.alpnVersions != null ? new ArrayList<>(other.alpnVersions) : null;
+    this.h2cUpgrade = other.h2cUpgrade;
+    this.proxyHost = other.proxyHost;
+    this.proxyPort = other.proxyPort;
+    this.proxyUsername = other.proxyUsername;
+    this.proxyPassword = other.proxyPassword;
   }
 
   /**
@@ -136,6 +180,15 @@ public class HttpClientOptions extends ClientOptionsBase {
     defaultHost = DEFAULT_DEFAULT_HOST;
     defaultPort = DEFAULT_DEFAULT_PORT;
     protocolVersion = DEFAULT_PROTOCOL_VERSION;
+    maxChunkSize = DEFAULT_MAX_CHUNK_SIZE;
+    maxWaitQueueSize = DEFAULT_MAX_WAIT_QUEUE_SIZE;
+    initialSettings = new Http2Settings();
+    alpnVersions = new ArrayList<>(DEFAULT_ALPN_VERSIONS);
+    h2cUpgrade = DEFAULT_H2C_UPGRADE;
+    proxyHost = null;
+    proxyPort = 0;
+    proxyUsername = null;
+    proxyPassword = null;
   }
 
   @Override
@@ -233,6 +286,12 @@ public class HttpClientOptions extends ClientOptionsBase {
   @Override
   public HttpClientOptions addEnabledCipherSuite(String suite) {
     super.addEnabledCipherSuite(suite);
+    return this;
+  }
+
+  @Override
+  public HttpClientOptions addEnabledSecureTransportProtocol(final String protocol) {
+    super.addEnabledSecureTransportProtocol(protocol);
     return this;
   }
 
@@ -442,6 +501,195 @@ public class HttpClientOptions extends ClientOptionsBase {
     return this;
   }
 
+  /**
+   * Set the maximum HTTP chunk size
+   * @param maxChunkSize the maximum chunk size
+   * @return a reference to this, so the API can be used fluently
+   */
+  public HttpClientOptions setMaxChunkSize(int maxChunkSize) {
+    this.maxChunkSize = maxChunkSize;
+    return this;
+  }
+
+  /**
+   * Returns the maximum HTTP chunk size
+   * @return the maximum HTTP chunk size
+   */
+  public int getMaxChunkSize() {
+    return maxChunkSize;
+  }
+
+  /**
+   * Set the maximum requests allowed in the wait queue, any requests beyond the max size will result in
+   * a ConnectionPoolTooBusyException.  If the value is set to a negative number then the queue will be unbounded.
+   * @param maxWaitQueueSize the maximum number of waiting requests
+   * @return a reference to this, so the API can be used fluently
+   */
+  public HttpClientOptions setMaxWaitQueueSize(int maxWaitQueueSize) {
+    this.maxWaitQueueSize = maxWaitQueueSize;
+    return this;
+  }
+
+  /**
+   * Returns the maximum wait queue size
+   * @return the maximum wait queue size
+   */
+  public int getMaxWaitQueueSize() {
+    return maxWaitQueueSize;
+  }
+
+  /**
+   * @return the initial HTTP/2 connection settings
+   */
+  public Http2Settings getInitialSettings() {
+    return initialSettings;
+  }
+
+  /**
+   * Set the HTTP/2 connection settings immediately sent by to the server when the client connects.
+   *
+   * @param settings the settings value
+   * @return a reference to this, so the API can be used fluently
+   */
+  public HttpClientOptions setInitialSettings(Http2Settings settings) {
+    this.initialSettings = settings;
+    return this;
+  }
+
+  @Override
+  public HttpClientOptions setUseAlpn(boolean useAlpn) {
+    return (HttpClientOptions) super.setUseAlpn(useAlpn);
+  }
+
+  @Override
+  public HttpClientOptions setSslEngine(SSLEngine sslEngine) {
+    return (HttpClientOptions) super.setSslEngine(sslEngine);
+  }
+
+  /**
+   * @return the list of protocol versions to provide during the Application-Layer Protocol Negotiation. When
+   * the list is empty, the client provides a best effort list according to {@link #setProtocolVersion}
+   */
+  public List<HttpVersion> getAlpnVersions() {
+    return alpnVersions;
+  }
+
+  /**
+   * Set the list of protocol versions to provide to the server during the Application-Layer Protocol Negotiation.
+   * When the list is empty, the client provides a best effort list according to {@link #setProtocolVersion}:
+   *
+   * <ul>
+   *   <li>{@link HttpVersion#HTTP_2}: [ "h2", "http/1.1" ]</li>
+   *   <li>otherwise: [{@link #getProtocolVersion()}]</li>
+   * </ul>
+   *
+   * @param alpnVersions the versions
+   * @return a reference to this, so the API can be used fluently
+   */
+  public HttpClientOptions setAlpnVersions(List<HttpVersion> alpnVersions) {
+    this.alpnVersions = alpnVersions;
+    return this;
+  }
+
+  /**
+   * @return true when an <i>h2c</i> connection is established using an HTTP/1.1 upgrade request, false when directly
+   */
+  public boolean isH2cUpgrade() {
+    return h2cUpgrade;
+  }
+
+  /**
+   * Set to {@code true} when an <i>h2c</i> connection is established using an HTTP/1.1 upgrade request, and {@code false}
+   * when an <i>h2c</i> connection is established directly (with prior knowledge).
+   *
+   * @param value the upgrade value
+   * @return a reference to this, so the API can be used fluently
+   */
+  public HttpClientOptions setH2cUpgrade(boolean value) {
+    this.h2cUpgrade = value;
+    return this;
+  }
+
+  /**
+   * Set proxy hostname for ssl connections via CONNECT proxy (e.g. Squid).
+   *
+   * @param proxyHost proxy hostname to use for ssl connections
+   * @return a reference to this, so the API can be used fluently
+   */
+  public HttpClientOptions setProxyHost(String proxyHost) {
+    this.proxyHost = proxyHost;
+    return this;
+  }
+
+  /**
+   * Get proxy hostname for ssl connections
+   *
+   * @return proxy hostname
+   */
+  public String getProxyHost() {
+    return proxyHost;
+  }
+
+  /**
+   * Set proxy port for ssl connections
+   *
+   * @param proxyPort proxy port to use for ssl connections
+   * @return a reference to this, so the API can be used fluently
+   */
+  public HttpClientOptions setProxyPort(int proxyPort) {
+    this.proxyPort = proxyPort;
+    return this;
+  }
+
+  /**
+   * Get proxy port for ssl connections
+   *
+   * @return proxy port
+   */
+  public int getProxyPort() {
+    return proxyPort;
+  }
+
+  /**
+   * Set proxy username for ssl connections
+   *
+   * @param proxyUsername username for Proxy Authentication header
+   * @return a reference to this, so the API can be used fluently
+   */
+  public HttpClientOptions setProxyUsername(String proxyUsername) {
+    this.proxyUsername = proxyUsername;
+    return this;
+  }
+
+  /**
+   * Get proxy username for ssl connections
+   *
+   * @return proxy username
+   */
+  public String getProxyUsername() {
+    return proxyUsername;
+  }
+
+  /**
+   * Set proxy password for ssl connections
+   *
+   * @param proxyPassword password for Proxy Authentication header
+   * @return a reference to this, so the API can be used fluently
+   */
+  public HttpClientOptions setProxyPassword(String proxyPassword) {
+    this.proxyPassword = proxyPassword;
+    return this;
+  }
+
+  /**
+   * Get proxy password for ssl connections
+   *
+   * @return proxy password
+   */
+  public String getProxyPassword() {
+    return proxyPassword;
+  }
+
   @Override
   public boolean equals(Object o) {
     if (this == o) return true;
@@ -459,6 +707,15 @@ public class HttpClientOptions extends ClientOptionsBase {
     if (verifyHost != that.verifyHost) return false;
     if (!defaultHost.equals(that.defaultHost)) return false;
     if (protocolVersion != that.protocolVersion) return false;
+    if (maxChunkSize != that.maxChunkSize) return false;
+    if (maxWaitQueueSize != that.maxWaitQueueSize) return false;
+    if (initialSettings == null ? that.initialSettings != null : !initialSettings.equals(that.initialSettings)) return false;
+    if (alpnVersions == null ? that.alpnVersions != null : !alpnVersions.equals(that.alpnVersions)) return false;
+    if (h2cUpgrade != that.h2cUpgrade) return false;
+    if (proxyHost == null ? that.proxyHost != null : !proxyHost.equals(that.proxyHost)) return false;
+    if (proxyPort != that.proxyPort) return false;
+    if (proxyUsername == null ? that.proxyUsername != null : !proxyUsername.equals(that.proxyUsername)) return false;
+    if (proxyPassword == null ? that.proxyPassword != null : !proxyPassword.equals(that.proxyPassword)) return false;
 
     return true;
   }
@@ -475,6 +732,15 @@ public class HttpClientOptions extends ClientOptionsBase {
     result = 31 * result + defaultHost.hashCode();
     result = 31 * result + defaultPort;
     result = 31 * result + protocolVersion.hashCode();
+    result = 31 * result + maxChunkSize;
+    result = 31 * result + maxWaitQueueSize;
+    result = 31 * result + (initialSettings != null ? initialSettings.hashCode() : 0);
+    result = 31 * result + (alpnVersions != null ? alpnVersions.hashCode() : 0);
+    result = 31 * result + (h2cUpgrade ? 1 : 0);
+    result = 31 * result + (proxyHost != null ? proxyHost.hashCode() : 0);
+    result = 31 * result + proxyPort;
+    result = 31 * result + (proxyUsername != null ? proxyUsername.hashCode() : 0);
+    result = 31 * result + (proxyPassword != null ? proxyPassword.hashCode() : 0);
     return result;
   }
 }

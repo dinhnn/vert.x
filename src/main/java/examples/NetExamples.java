@@ -19,6 +19,7 @@ package examples;
 import io.vertx.core.DeploymentOptions;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
+import io.vertx.core.http.ClientAuth;
 import io.vertx.core.net.*;
 
 /**
@@ -179,8 +180,9 @@ public class NetExamples {
 
   public void example16(Vertx vertx) {
 
-    NetClientOptions options = new NetClientOptions();
-    options.setReconnectAttempts(10).setReconnectInterval(500);
+    NetClientOptions options = new NetClientOptions().
+        setReconnectAttempts(10).
+        setReconnectInterval(500);
 
     NetClient client = vertx.createNetClient(options);
   }
@@ -253,7 +255,7 @@ public class NetExamples {
   public void example23(Vertx vertx) {
     NetServerOptions options = new NetServerOptions().
         setSsl(true).
-        setClientAuthRequired(true).
+        setClientAuth(ClientAuth.REQUIRED).
         setTrustStoreOptions(
             new JksOptions().
                 setPath("/path/to/your/truststore.jks").
@@ -266,7 +268,7 @@ public class NetExamples {
     Buffer myTrustStoreAsABuffer = vertx.fileSystem().readFileBlocking("/path/to/your/truststore.jks");
     NetServerOptions options = new NetServerOptions().
         setSsl(true).
-        setClientAuthRequired(true).
+        setClientAuth(ClientAuth.REQUIRED).
         setTrustStoreOptions(
             new JksOptions().
                 setValue(myTrustStoreAsABuffer).
@@ -278,7 +280,7 @@ public class NetExamples {
   public void example25(Vertx vertx) {
     NetServerOptions options = new NetServerOptions().
         setSsl(true).
-        setClientAuthRequired(true).
+        setClientAuth(ClientAuth.REQUIRED).
         setPfxTrustOptions(
             new PfxOptions().
                 setPath("/path/to/your/truststore.pfx").
@@ -291,7 +293,7 @@ public class NetExamples {
     Buffer myTrustStoreAsABuffer = vertx.fileSystem().readFileBlocking("/path/to/your/truststore.pfx");
     NetServerOptions options = new NetServerOptions().
         setSsl(true).
-        setClientAuthRequired(true).
+        setClientAuth(ClientAuth.REQUIRED).
         setPfxTrustOptions(
             new PfxOptions().
                 setValue(myTrustStoreAsABuffer).
@@ -303,7 +305,7 @@ public class NetExamples {
   public void example27(Vertx vertx) {
     NetServerOptions options = new NetServerOptions().
         setSsl(true).
-        setClientAuthRequired(true).
+        setClientAuth(ClientAuth.REQUIRED).
         setPemTrustOptions(
             new PemTrustOptions().
                 addCertPath("/path/to/your/server-ca.pem")
@@ -315,7 +317,7 @@ public class NetExamples {
     Buffer myCaAsABuffer = vertx.fileSystem().readFileBlocking("/path/to/your/server-ca.pfx");
     NetServerOptions options = new NetServerOptions().
         setSsl(true).
-        setClientAuthRequired(true).
+        setClientAuth(ClientAuth.REQUIRED).
         setPemTrustOptions(
             new PemTrustOptions().
                 addCertValue(myCaAsABuffer)
@@ -490,5 +492,20 @@ public class NetExamples {
         addEnabledCipherSuite("ECDHE-RSA-AES256-GCM-SHA384").
         addEnabledCipherSuite("CDHE-ECDSA-AES256-GCM-SHA384");
     NetServer server = vertx.createNetServer(options);
+  }
+  public void example45(Vertx vertx, JksOptions keyStoreOptions) {
+    NetServerOptions options = new NetServerOptions().
+        setSsl(true).
+        setKeyStoreOptions(keyStoreOptions).
+        addEnabledSecureTransportProtocol("TLSv1.1").
+        addEnabledSecureTransportProtocol("TLSv1.2");
+        NetServer server = vertx.createNetServer(options);
+    }
+
+  public void example46(Vertx vertx, JksOptions keyStoreOptions) {
+    NetClientOptions options = new NetClientOptions().
+            setSsl(true).
+            setHostnameVerificationAlgorithm("HTTPS");
+    NetClient client = vertx.createNetClient(options);
   }
 }

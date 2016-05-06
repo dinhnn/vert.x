@@ -16,9 +16,19 @@
 
 package io.vertx.test.core;
 
+import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Context;
+import io.vertx.core.DeploymentOptions;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.core.WorkerExecutor;
+import io.vertx.core.impl.ContextInternal;
 import org.junit.Test;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * @author <a href="http://tfox.org">Tim Fox</a>
@@ -81,11 +91,256 @@ public class ContextTest extends VertxTestBase {
 
   @Test
   public void testGettingContextContextUnderContextAnotherInstanceShouldReturnDifferentContext() throws Exception {
-    Vertx other = Vertx.vertx();
+    Vertx other = vertx();
     Context context = vertx.getOrCreateContext();
     context.runOnContext(v -> {
       Context otherContext = other.getOrCreateContext();
       assertNotSame(otherContext, context);
+      testComplete();
+    });
+    await();
+  }
+
+  @Test
+  public void testExecuteOrderedBlocking() throws Exception {
+    Context context = vertx.getOrCreateContext();
+    context.executeBlocking(f -> {
+      assertTrue(Context.isOnWorkerThread());
+      f.complete(1 + 2);
+    }, r -> {
+      assertTrue(Context.isOnEventLoopThread());
+      assertEquals(r.result(), 3);
+      testComplete();
+    });
+    await();
+  }
+
+  @Test
+  public void testExecuteUnorderedBlocking() throws Exception {
+    Context context = vertx.getOrCreateContext();
+    context.executeBlocking(f -> {
+      assertTrue(Context.isOnWorkerThread());
+      f.complete(1 + 2);
+    }, false, r -> {
+      assertTrue(Context.isOnEventLoopThread());
+      assertEquals(r.result(), 3);
+      testComplete();
+    });
+    await();
+  }
+
+  @Test
+  public void testEventLoopExecuteFromIo() throws Exception {
+    ContextInternal eventLoopContext = (ContextInternal) vertx.getOrCreateContext();
+
+    // Check from other thread
+    try {
+      eventLoopContext.executeFromIO(this::fail);
+      fail();
+    } catch (IllegalStateException expected) {
+    }
+
+    // Check from event loop thread
+    eventLoopContext.nettyEventLoop().execute(() -> {
+      // Should not be set yet
+      assertNull(Vertx.currentContext());
+      Thread vertxThread = Thread.currentThread();
+      AtomicBoolean nested = new AtomicBoolean(true);
+      eventLoopContext.executeFromIO(() -> {
+        assertTrue(nested.get());
+        assertSame(eventLoopContext, Vertx.currentContext());
+        assertSame(vertxThread, Thread.currentThread());
+      });
+      nested.set(false);
+      testComplete();
+    });
+    await();
+  }
+
+  @Test
+  public void testWorkerExecuteFromIo() throws Exception {
+    AtomicReference<ContextInternal> workerContext = new AtomicReference<>();
+    CountDownLatch latch = new CountDownLatch(1);
+    vertx.deployVerticle(new AbstractVerticle() {
+      @Override
+      public void start() throws Exception {
+        workerContext.set((ContextInternal) context);
+        latch.countDown();
+      }
+    }, new DeploymentOptions().setWorker(true));
+    awaitLatch(latch);
+    workerContext.get().nettyEventLoop().execute(() -> {
+      assertNull(Vertx.currentContext());
+      workerContext.get().executeFromIO(() -> {
+        assertSame(workerContext.get(), Vertx.currentContext());
+        assertTrue(Context.isOnWorkerThread());
+        testComplete();
+      });
+    });
+    await();
+  }
+
+  @Test
+  public void testContextExceptionHandler() {
+    RuntimeException failure = new RuntimeException();
+    Context context = vertx.getOrCreateContext();
+    context.exceptionHandler(err -> {
+      assertSame(context, Vertx.currentContext());
+      assertSame(failure, err);
+      testComplete();
+    });
+    context.runOnContext(v -> {
+      throw failure;
+    });
+    await();
+  }
+
+  @Test
+  public void testContextExceptionHandlerFailing() {
+    RuntimeException failure = new RuntimeException();
+    Context context = vertx.getOrCreateContext();
+    AtomicInteger count = new AtomicInteger();
+    context.exceptionHandler(err -> {
+      if (count.getAndIncrement() == 0) {
+        throw new RuntimeException();
+      } else {
+        assertSame(failure, err);
+        testComplete();
+      }
+    });
+    context.runOnContext(v -> {
+      throw new RuntimeException();
+    });
+    context.runOnContext(v -> {
+      throw failure;
+    });
+    await();
+  }
+
+  @Test
+  public void testDefaultContextExceptionHandler() {
+    RuntimeException failure = new RuntimeException();
+    Context context = vertx.getOrCreateContext();
+    vertx.exceptionHandler(err -> {
+      assertSame(failure, err);
+      testComplete();
+    });
+    context.runOnContext(v -> {
+      throw failure;
+    });
+    await();
+  }
+
+  @Test
+  public void testExceptionHandlerOnDeploymentAsyncResultHandlerFailure() {
+    RuntimeException failure = new RuntimeException();
+    Context ctx = vertx.getOrCreateContext();
+    ctx.exceptionHandler(err -> {
+      assertSame(failure, err);
+      testComplete();
+    });
+    ctx.runOnContext(v -> {
+      vertx.deployVerticle(new AbstractVerticle() {
+        @Override
+        public void start() throws Exception {
+        }
+      }, ar -> {
+        throw failure;
+      });
+    });
+    await();
+  }
+
+  @Test
+  public void testExceptionHandlerOnAsyncDeploymentAsyncResultHandlerFailure() {
+    RuntimeException failure = new RuntimeException();
+    Context ctx = vertx.getOrCreateContext();
+    ctx.exceptionHandler(err -> {
+      assertSame(failure, err);
+      testComplete();
+    });
+    ctx.runOnContext(v -> {
+      vertx.deployVerticle(new AbstractVerticle() {
+        @Override
+        public void start(Future<Void> startFuture) throws Exception {
+          context.runOnContext(startFuture::complete);
+        }
+      }, ar -> {
+        throw failure;
+      });
+    });
+    await();
+  }
+
+  @Test
+  public void testVerticleUseDifferentExecuteBlockingOrderedExecutor() throws Exception {
+    testVerticleUseDifferentOrderedExecutor(false);
+  }
+
+  @Test
+  public void testWorkerVerticleUseDifferentExecuteBlockingOrderedExecutor() throws Exception {
+    testVerticleUseDifferentOrderedExecutor(true);
+  }
+
+  private void testVerticleUseDifferentOrderedExecutor(boolean worker) throws Exception {
+    waitFor(2);
+    CountDownLatch latch1 = new CountDownLatch(1);
+    CountDownLatch latch2 = new CountDownLatch(1);
+    vertx.deployVerticle(new AbstractVerticle() {
+      @Override
+      public void start() throws Exception {
+        vertx.executeBlocking(fut -> {
+          latch1.countDown();
+          try {
+            awaitLatch(latch2);
+            fut.complete();
+          } catch (InterruptedException e) {
+            fut.fail(e);
+          }
+        }, ar -> {
+          assertTrue(ar.succeeded());
+          complete();
+        });
+      }
+    }, new DeploymentOptions().setWorker(worker));
+    awaitLatch(latch1);
+    CountDownLatch latch3 = new CountDownLatch(1);
+    vertx.deployVerticle(new AbstractVerticle() {
+      @Override
+      public void start() throws Exception {
+        vertx.executeBlocking(fut -> {
+          latch3.countDown();
+          fut.complete();
+        }, ar -> {
+          assertTrue(ar.succeeded());
+          complete();
+        });
+      }
+    }, new DeploymentOptions().setWorker(worker));
+    awaitLatch(latch3);
+    latch2.countDown();
+    await();
+  }
+
+  @Test
+  public void testContextInternalCreateWorkerExecutor() {
+    ContextInternal context = (ContextInternal) vertx.getOrCreateContext();
+    WorkerExecutor executor1 = context.createWorkerExecutor();
+    WorkerExecutor executor2 = context.createWorkerExecutor();
+    executor1.executeBlocking(fut1 -> {
+      CountDownLatch latch = new CountDownLatch(1);
+      executor2.executeBlocking(fut2 -> {
+        fut2.complete();
+      }, ar -> {
+        latch.countDown();
+      });
+      try {
+        awaitLatch(latch);
+      } catch (InterruptedException e) {
+        fail(e);
+      }
+      fut1.complete();
+    }, ar -> {
       testComplete();
     });
     await();

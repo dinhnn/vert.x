@@ -28,7 +28,7 @@ import io.vertx.core.spi.logging.LogDelegate;
  * <p>
  * If you would prefer to use Log4J or SLF4J instead of JUL then you can set a system property called
  * {@code vertx.logger-delegate-factory-class-name} to the class name of the delegate for your logging system.
- * For Log4J the value is {@code io.vertx.core.logging.impl.Log4JLogDelegateFactory}, for SLF4J the value
+ * For Log4J the value is {@code io.vertx.core.logging.Log4jLogDelegateFactory}, for SLF4J the value
  * is {@code io.vertx.core.logging.SLF4JLogDelegateFactory}. You will need to ensure whatever jar files
  * required by your favourite log framework are on your classpath.
  *
@@ -70,12 +70,28 @@ public class Logger {
     delegate.error(message, t);
   }
 
+  public void error(final Object message, final Object... objects) {
+    delegate.error(message, objects);
+  }
+
+  public void error(final Object message, final Throwable t, final Object... objects) {
+    delegate.error(message, t, objects);
+  }
+
   public void warn(final Object message) {
     delegate.warn(message);
   }
 
   public void warn(final Object message, final Throwable t) {
     delegate.warn(message, t);
+  }
+
+  public void warn(final Object message, final Object... objects) {
+    delegate.warn(message, objects);
+  }
+
+  public void warn(final Object message, final Throwable t, final Object... objects) {
+    delegate.warn(message, t, objects);
   }
 
   public void info(final Object message) {
@@ -86,12 +102,28 @@ public class Logger {
     delegate.info(message, t);
   }
 
+  public void info(final Object message, final Object... objects) {
+    delegate.info(message, objects);
+  }
+
+  public void info(final Object message, final Throwable t, final Object... objects) {
+    delegate.info(message, t, objects);
+  }
+
   public void debug(final Object message) {
     delegate.debug(message);
   }
 
   public void debug(final Object message, final Throwable t) {
     delegate.debug(message, t);
+  }
+
+  public void debug(final Object message, final Object... objects) {
+    delegate.debug(message, objects);
+  }
+
+  public void debug(final Object message, final Throwable t, final Object... objects) {
+    delegate.debug(message, t, objects);
   }
 
   public void trace(final Object message) {
@@ -102,4 +134,11 @@ public class Logger {
     delegate.trace(message, t);
   }
 
+  public void trace(final Object message, final Object... objects) {
+    delegate.trace(message, objects);
+  }
+
+  public void trace(final Object message, final Throwable t, final Object... objects) {
+    delegate.trace(message, t, objects);
+  }
 }

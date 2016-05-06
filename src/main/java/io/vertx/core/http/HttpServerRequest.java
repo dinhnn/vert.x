@@ -16,6 +16,7 @@
 
 package io.vertx.core.http;
 
+import io.vertx.codegen.annotations.Nullable;
 import io.vertx.core.Handler;
 import io.vertx.core.MultiMap;
 import io.vertx.core.buffer.Buffer;
@@ -72,6 +73,22 @@ public interface HttpServerRequest extends ReadStream<Buffer> {
   HttpMethod method();
 
   /**
+   * @return the HTTP method as sent by the client
+   */
+  String rawMethod();
+  
+  /**
+   * @return true if this {@link io.vertx.core.net.NetSocket} is encrypted via SSL/TLS
+   */
+  boolean isSSL();
+
+  /**
+   * @return the scheme of the request
+   */
+  @Nullable
+  String scheme();
+
+  /**
    * @return the URI of the request. This is usually a relative URI
    */
   String uri();
@@ -79,12 +96,20 @@ public interface HttpServerRequest extends ReadStream<Buffer> {
   /**
    * @return The path part of the uri. For example /somepath/somemorepath/someresource.foo
    */
+  @Nullable
   String path();
 
   /**
    * @return the query part of the uri. For example someparam=32&amp;someotherparam=x
    */
+  @Nullable
   String query();
+
+  /**
+   * @return the request host. For HTTP2 it returns the {@literal :authority} pseudo header otherwise it returns the {@literal Host} header
+   */
+  @Nullable
+  String host();
 
   /**
    * @return the response. Each instance of this class has an {@link HttpServerResponse} instance attached to it. This is used
@@ -105,6 +130,7 @@ public interface HttpServerRequest extends ReadStream<Buffer> {
    * @param headerName  the header name
    * @return the header value
    */
+  @Nullable
   String getHeader(String headerName);
 
   /**
@@ -128,6 +154,7 @@ public interface HttpServerRequest extends ReadStream<Buffer> {
    * @param paramName  the param name
    * @return the param value
    */
+  @Nullable
   String getParam(String paramName);
 
 
@@ -165,7 +192,12 @@ public interface HttpServerRequest extends ReadStream<Buffer> {
    * @param bodyHandler This handler will be called after all the body has been received
    */
   @Fluent
-  HttpServerRequest bodyHandler(Handler<Buffer> bodyHandler);
+  default HttpServerRequest bodyHandler(@Nullable Handler<Buffer> bodyHandler) {
+    Buffer body = Buffer.buffer();
+    handler(body::appendBuffer);
+    endHandler(v -> bodyHandler.handle(body));
+    return this;
+  }
 
   /**
    * Get a net socket for the underlying connection of this request.
@@ -203,7 +235,7 @@ public interface HttpServerRequest extends ReadStream<Buffer> {
    * @return a reference to this, so the API can be used fluently
    */
   @Fluent
-  HttpServerRequest uploadHandler(Handler<HttpServerFileUpload> uploadHandler);
+  HttpServerRequest uploadHandler(@Nullable Handler<HttpServerFileUpload> uploadHandler);
 
   /**
    * Returns a map of all form attributes in the request.
@@ -224,6 +256,7 @@ public interface HttpServerRequest extends ReadStream<Buffer> {
    * @param attributeName  the attribute name
    * @return the attribute value
    */
+  @Nullable
   String getFormAttribute(String attributeName);
 
   /**
@@ -242,5 +275,20 @@ public interface HttpServerRequest extends ReadStream<Buffer> {
    * @return true if ended
    */
   boolean isEnded();
+
+  /**
+   * Set an unknown frame handler. The handler will get notified when the http stream receives an unknown HTTP/2
+   * frame. HTTP/2 permits extension of the protocol.
+   *
+   * @return a reference to this, so the API can be used fluently
+   */
+  @Fluent
+  HttpServerRequest unknownFrameHandler(Handler<HttpFrame> handler);
+
+  /**
+   * @return the {@link HttpConnection} associated with this request when it is an HTTP/2 connection, null otherwise
+   */
+  @CacheReturn
+  HttpConnection connection();
 
 }

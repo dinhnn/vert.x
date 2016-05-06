@@ -18,10 +18,8 @@ package io.vertx.core.impl;
 
 import io.vertx.core.*;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.UnsupportedEncodingException;
+import java.io.*;
+import java.io.Closeable;
 import java.net.URL;
 import java.net.URLDecoder;
 import java.nio.file.FileAlreadyExistsException;
@@ -29,6 +27,8 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.Enumeration;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -44,6 +44,7 @@ import java.util.zip.ZipFile;
  * There is one cache dir per Vert.x instance and they are deleted on Vert.x shutdown.
  *
  * @author <a href="http://tfox.org">Tim Fox</a>
+ * @author <a href="https://github.com/rworsnop/">Rob Worsnop</a>
  */
 public class FileResolver {
 
@@ -53,7 +54,7 @@ public class FileResolver {
 
   private static final String DEFAULT_CACHE_DIR_BASE = ".vertx";
   private static final String FILE_SEP = System.getProperty("file.separator");
-  private static boolean NON_UNIX_FILE_SEP = !FILE_SEP.equals("/");
+  private static final boolean NON_UNIX_FILE_SEP = !FILE_SEP.equals("/");
   private static final boolean ENABLE_CACHING = !Boolean.getBoolean(DISABLE_FILE_CACHING_PROP_NAME);
   private static final boolean ENABLE_CP_RESOLVING = !Boolean.getBoolean(DISABLE_CP_RESOLVING_PROP_NAME);
   private static final String CACHE_DIR_BASE = System.getProperty(CACHE_DIR_BASE_PROP_NAME, DEFAULT_CACHE_DIR_BASE);
@@ -114,7 +115,11 @@ public class FileResolver {
           case "file":
             return unpackFromFileURL(url, fileName, cl);
           case "jar":
-            return unpackFromJarURL(url, fileName);
+            return unpackFromJarURL(url, fileName, cl);
+          case "bundle": // Apache Felix, Knopflerfish
+          case "bundleentry": // Equinox
+          case "bundleresource": // Equinox
+            return unpackFromBundleURL(url);
           default:
             throw new IllegalStateException("Invalid url protocol: " + prot);
         }
@@ -156,13 +161,27 @@ public class FileResolver {
     return cacheFile;
   }
 
-  private synchronized  File unpackFromJarURL(URL url, String fileName) {
-
-    String path = url.getPath();
-    String jarFile = path.substring(5, path.lastIndexOf(".jar!") + 4);
-
+  private synchronized File unpackFromJarURL(URL url, String fileName, ClassLoader cl) {
+    ZipFile zip = null;
     try {
-      ZipFile zip = new ZipFile(jarFile);
+      String path = url.getPath();
+      int idx1 = path.lastIndexOf(".jar!");
+      if (idx1 == -1) {
+        idx1 = path.lastIndexOf(".zip!");
+      }
+      int idx2 = path.lastIndexOf(".jar!", idx1 - 1);
+      if (idx2 == -1) {
+        idx2 = path.lastIndexOf(".zip!", idx1 - 1);
+      }
+      if (idx2 == -1) {
+        File file = new File(URLDecoder.decode(path.substring(5, idx1 + 4), "UTF-8"));
+        zip = new ZipFile(file);
+      } else {
+        String s = path.substring(idx2 + 6, idx1 + 4);
+        File file = resolveFile(s);
+        zip = new ZipFile(file);
+      }
+
       Enumeration<? extends ZipEntry> entries = zip.entries();
       while (entries.hasMoreElements()) {
         ZipEntry entry = entries.nextElement();
@@ -187,9 +206,53 @@ public class FileResolver {
       }
     } catch (IOException e) {
       throw new VertxException(e);
+    } finally {
+      closeQuietly(zip);
     }
 
     return new File(cacheDir, fileName);
+  }
+
+  private void closeQuietly(Closeable zip) {
+    if (zip != null) {
+      try {
+        zip.close();
+      } catch (IOException e) {
+        // Ignored.
+      }
+    }
+  }
+
+  /**
+   * bundle:// urls are used by OSGi implementations to refer to a file contained in a bundle, or in a fragment. There
+   * is not much we can do to get the file from it, except reading it from the url. This method copies the files by
+   * reading it from the url.
+   *
+   * @param url      the url
+   * @return the extracted file
+   */
+  private synchronized File unpackFromBundleURL(URL url) {
+    try {
+      File file = new File(cacheDir, url.getHost() + File.separator + url.getFile());
+      file.getParentFile().mkdirs();
+      if (url.toExternalForm().endsWith("/")) {
+        // Directory
+        file.mkdirs();
+      } else {
+        file.getParentFile().mkdirs();
+        try (InputStream is = url.openStream()) {
+          if (ENABLE_CACHING) {
+            Files.copy(is, file.toPath());
+          } else {
+            Files.copy(is, file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+          }
+        } catch (FileAlreadyExistsException ignore) {
+        }
+      }
+    } catch (IOException e) {
+      throw new VertxException(e);
+    }
+    return new File(cacheDir, url.getHost() + File.separator + url.getFile());
   }
 
 
@@ -208,7 +271,14 @@ public class FileResolver {
       throw new IllegalStateException("Failed to create cache dir");
     }
     // Add shutdown hook to delete on exit
-    shutdownHook = new Thread(() -> deleteCacheDir(ar -> {}));
+    shutdownHook = new Thread(() -> {
+      CountDownLatch latch = new CountDownLatch(1);
+      deleteCacheDir(ar -> latch.countDown());
+      try {
+        latch.await(10, TimeUnit.SECONDS);
+      } catch (Exception ignore) {
+      }
+    });
     Runtime.getRuntime().addShutdownHook(shutdownHook);
   }
 
@@ -219,8 +289,5 @@ public class FileResolver {
       handler.handle(Future.succeededFuture());
     }
   }
-
-
-
 }
 

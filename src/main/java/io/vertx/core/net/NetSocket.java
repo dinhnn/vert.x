@@ -17,6 +17,7 @@
 package io.vertx.core.net;
 
 import io.vertx.codegen.annotations.GenIgnore;
+import io.vertx.codegen.annotations.Nullable;
 import io.vertx.core.AsyncResult;
 import io.vertx.core.Handler;
 import io.vertx.codegen.annotations.CacheReturn;
@@ -190,6 +191,12 @@ public interface NetSocket extends ReadStream<Buffer>, WriteStream<Buffer> {
   SocketAddress localAddress();
 
   /**
+   * Calls {@link #close()}
+   */
+  @Override
+  void end();
+
+  /**
    * Close the NetSocket
    */
   void close();
@@ -201,7 +208,7 @@ public interface NetSocket extends ReadStream<Buffer>, WriteStream<Buffer> {
    * @return a reference to this, so the API can be used fluently
    */
   @Fluent
-  NetSocket closeHandler(Handler<Void> handler);
+  NetSocket closeHandler(@Nullable Handler<Void> handler);
 
   /**
    * Upgrade channel to use SSL/TLS. Be aware that for this to work SSL must be configured.

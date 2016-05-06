@@ -152,10 +152,13 @@
  * The remote address, (i.e. the address of the other end of the connection) of a {@link io.vertx.core.net.NetSocket}
  * can be retrieved using {@link io.vertx.core.net.NetSocket#remoteAddress()}.
  *
- * === Sending files
+ * === Sending files or resources from the classpath
  *
- * Files can be written to the socket directly using {@link io.vertx.core.net.NetSocket#sendFile}. This can be a very
+ * Files and classpath resources can be written to the socket directly using {@link io.vertx.core.net.NetSocket#sendFile}. This can be a very
  * efficient way to send files, as it can be handled by the OS kernel directly where supported by the operating system.
+ * 
+ * Please see the chapter about <<classpath, serving files from the classpath>> for restrictions of the 
+ * classpath resolution or disabling it.
  *
  * [source,$lang]
  * ----
@@ -431,6 +434,15 @@
  * If {@link io.vertx.core.net.ClientOptionsBase#setTrustAll trustAll} is not set then a client trust store must be
  * configured and should contain the certificates of the servers that the client trusts.
  *
+ * By default, host verification is disabled on the client.
+ * To enable host verification, set the algorithm to use on your client (only HTTPS and LDAPS is currently supported):
+ *
+ *
+ * [source,$lang]
+ * ----
+ * {@link examples.NetExamples#example46}
+ * ----
+ *
  * Likewise server configuration, the client trust can be configured in several ways:
  *
  * The first method is by specifying the location of a Java trust-store which contains the certificate authority.
@@ -554,7 +566,7 @@
  *
  * ==== Configuring the Cipher suite
  *
- * By default, the TLS configuration will uses the Cipher suite of the JVM running Vert.x. This Cipher suite can be
+ * By default, the TLS configuration will use the Cipher suite of the JVM running Vert.x. This Cipher suite can be
  * configured with a suite of enabled ciphers:
  *
  * [source,$lang]
@@ -563,6 +575,68 @@
  * ----
  *
  * Cipher suite can be specified on the {@link io.vertx.core.net.NetServerOptions} or {@link io.vertx.core.net.NetClientOptions} configuration.
+ *
+ * ==== Configuring TLS protocol versions
+ *
+ * By default, the TLS configuration will use the following protocol versions: SSLv2Hello, TLSv1, TLSv1.1 and TLSv1.2. Protocol versions can be
+ * configured by explicitly adding enabled protocols:
+ *
+ * [source,$lang]
+ * ----
+ * {@link examples.NetExamples#example45}
+ * ----
+ *
+ * Protocol versions can be specified on the {@link io.vertx.core.net.NetServerOptions} or {@link io.vertx.core.net.NetClientOptions} configuration.
+ *
+ * ==== OpenSSL engine
+ *
+ * The default SSL/TLS engine implementation is provided by the JDK.
+ *
+ * The engine implementation can be configured to use https://www.openssl.org[OpenSSL] instead. OpenSSL provides
+ * better performances and CPU usage than the JDK engine, as well as JDK version independence.
+ *
+ * OpenSSL requires to configure {@link io.vertx.core.net.TCPSSLOptions#setSslEngine} to {@link io.vertx.core.net.SSLEngine#OPENSSL}
+ * and use http://netty.io/wiki/forked-tomcat-native.html[netty-tcnative] jar on the classpath. Using tcnative may require
+ * OpenSSL to be installed on your OS depending on the tcnative implementation.
+ *
+ * OpenSSL restricts the key/certificate configuration to `.pem` files. However it is still possible to use any trust
+ * configuration.
+ *
+ * ==== Application-Layer Protocol Negotiation
+ *
+ * ALPN is a TLS extension for applicationl layer protocol negotitation. It is used by HTTP/2: during the TLS handshake
+ * the client gives the list of application protocols it accepts and the server responds with a protocol it supports.
+ *
+ * Java 8 does not supports ALPN out of the box, so ALPN should be enabled by other means:
+ *
+ * - _OpenSSL_ support
+ * - _Jetty-ALPN_ support
+ *
+ * ===== OpenSSL ALPN support
+ *
+ * OpenSSL provides native ALPN support.
+ *
+ * ===== Jetty-ALPN support
+ *
+ * Jetty-ALPN is a small jar that overrides a few classes of Java 8 distribution to support ALPN.
+ *
+ * The JVM must be started with the _alpn-boot-${version}.jar_ in its `bootclasspath`:
+ *
+ * ----
+ * -Xbootclasspath/p:/path/to/alpn-boot${version}.jar
+ * ----
+ *
+ * where ${version} depends on the JVM version, e.g. _8.1.7.v20160121_ for _OpenJDK 1.8.0u74_ . The complete
+ * list is available on the http://www.eclipse.org/jetty/documentation/current/alpn-chapter.html[Jetty-ALPN page].
+ *
+ * The main drawback is that the version depends on the JVM.
+ *
+ * To solve this problem the _https://github.com/jetty-project/jetty-alpn-agent[Jetty ALPN agent]_ can be use instead. The agent is a JVM agent that will chose the correct
+ * ALPN version for the JVM running it:
+ *
+ * ----
+ * -javaagent:/path/to/alpn/agent
+ * ----
  *
  */
 @Document(fileName = "net.adoc")

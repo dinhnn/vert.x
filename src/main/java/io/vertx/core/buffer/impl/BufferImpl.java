@@ -21,6 +21,8 @@ import io.netty.buffer.Unpooled;
 import io.netty.util.CharsetUtil;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.impl.Arguments;
+import io.vertx.core.json.JsonArray;
+import io.vertx.core.json.JsonObject;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
@@ -70,6 +72,21 @@ public class BufferImpl implements Buffer {
     return buffer.toString(Charset.forName(enc));
   }
 
+  public String toString(Charset enc) {
+    return buffer.toString(enc);
+  }
+
+
+  @Override
+  public JsonObject toJsonObject() {
+    return new JsonObject(toString());
+  }
+
+  @Override
+  public JsonArray toJsonArray() {
+    return new JsonArray(toString());
+  }
+
   public byte getByte(int pos) {
     return buffer.getByte(pos);
   }
@@ -117,6 +134,28 @@ public class BufferImpl implements Buffer {
     byte[] arr = new byte[end - start];
     buffer.getBytes(start, arr, 0, end - start);
     return arr;
+  }
+
+  @Override
+  public Buffer getBytes(byte[] dst) {
+   return getBytes(dst, 0);
+  }
+
+  @Override
+  public Buffer getBytes(byte[] dst, int dstIndex) {
+    return getBytes(0, buffer.writerIndex(), dst, dstIndex);
+  }
+
+  @Override
+  public Buffer getBytes(int start, int end, byte[] dst) {
+    return getBytes(start, end, dst, 0);
+  }
+
+  @Override
+  public Buffer getBytes(int start, int end, byte[] dst, int dstIndex) {
+    Arguments.require(end >= start, "end must be greater or equal than start");
+    buffer.getBytes(start, dst, dstIndex, end - start);
+    return this;
   }
 
   public Buffer getBuffer(int start, int end) {

@@ -17,12 +17,16 @@
 package examples;
 
 import io.vertx.core.*;
+import io.vertx.core.buffer.Buffer;
+import io.vertx.core.dns.HostnameResolverOptions;
+import io.vertx.core.file.FileSystem;
 import io.vertx.core.http.HttpServer;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
+import io.vertx.core.net.NetServer;
 
 import java.util.Arrays;
 
@@ -75,12 +79,87 @@ public class CoreExamples {
     });
   }
 
+  public void workerExecutor1(Vertx vertx) {
+    WorkerExecutor executor = vertx.createWorkerExecutor("my-worker-pool");
+    executor.executeBlocking(future -> {
+      // Call some blocking API that takes a significant amount of time to return
+      String result = someAPI.blockingMethod("hello");
+      future.complete(result);
+    }, res -> {
+      System.out.println("The result is: " + res.result());
+    });
+  }
+
+  public void workerExecutor2(WorkerExecutor executor) {
+    executor.close();
+  }
+
+  public void workerExecutor3(Vertx vertx) {
+    //
+    // 10 threads max
+    int poolSize = 10;
+
+    // 2 minutes
+    long maxExecuteTime = 120000;
+
+    WorkerExecutor executor = vertx.createWorkerExecutor("my-worker-pool", poolSize, maxExecuteTime);
+  }
+
   BlockingAPI someAPI = new BlockingAPI();
 
   class BlockingAPI {
     String blockingMethod(String str) {
       return str;
     }
+  }
+
+  public void exampleFuture1(HttpServer httpServer, NetServer netServer) {
+    Future<HttpServer> httpServerFuture = Future.future();
+    httpServer.listen(httpServerFuture.completer());
+
+    Future<NetServer> netServerFuture = Future.future();
+    netServer.listen(netServerFuture.completer());
+
+    CompositeFuture.all(httpServerFuture, netServerFuture).setHandler(ar -> {
+      if (ar.succeeded()) {
+        // All server started
+      } else {
+        // At least one server failed
+      }
+    });
+  }
+
+  public void exampleFuture2() {
+    Future<String> future1 = Future.future();
+    Future<String> future2 = Future.future();
+    CompositeFuture.any(future1, future2).setHandler(ar -> {
+      if (ar.succeeded()) {
+        // At least one is succeeded
+      } else {
+        // All failed
+      }
+    });
+  }
+
+  public void exampleFuture3(Vertx vertx, Future<Void> startFuture) {
+
+    FileSystem fs = vertx.fileSystem();
+
+    Future<Void> fut1 = Future.future();
+
+    fs.createFile("/foo", fut1.completer());
+    fut1.compose(v -> {
+
+      Future<Void> fut2 = Future.future();
+      fs.writeFile("/foo", Buffer.buffer(), fut2.completer());
+
+      // Compose fut1 with fut2
+      return fut2;
+    }).compose(v -> {
+
+      // Compose fut1 with fut2 and fut3
+      fs.move("/foo", "/bar", startFuture.completer());
+    }, startFuture);
   }
 
   public void example7_1(Vertx vertx) {
@@ -222,8 +301,17 @@ public class CoreExamples {
     System.getenv("HOME");
   }
 
+  public void configureDNSServers() {
+    Vertx vertx = Vertx.vertx(new VertxOptions().
+        setHostnameResolverOptions(
+            new HostnameResolverOptions().
+                addServer("192.168.0.1").
+                addServer("192.168.0.2:40000"))
+    );
+  }
 
-
-
+  public void deployVerticleWithDifferentWorkerPool(Vertx vertx) {
+    vertx.deployVerticle("the-verticle", new DeploymentOptions().setWorkerPoolName("the-specific-pool"));
+  }
 
 }

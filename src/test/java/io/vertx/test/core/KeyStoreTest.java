@@ -30,7 +30,9 @@ import org.junit.Test;
 
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.TrustManager;
+import java.security.KeyStore;
 import java.util.Collections;
+import java.util.Enumeration;
 
 import static io.vertx.test.core.TestUtils.assertIllegalArgumentException;
 import static io.vertx.test.core.TestUtils.assertNullPointerException;
@@ -279,12 +281,12 @@ public class KeyStoreTest extends VertxTestBase {
 
   @Test
   public void testJKSPath() throws Exception {
-    testKeyStore(getServerCertOptions(KeyCert.JKS));
+    testKeyStore(TLSCert.JKS.getServerKeyCertOptions());
   }
 
   @Test
   public void testJKSValue() throws Exception {
-    JksOptions options = (JksOptions) getServerCertOptions(KeyCert.JKS);
+    JksOptions options = (JksOptions) TLSCert.JKS.getServerKeyCertOptions();
     Buffer store = vertx.fileSystem().readFileBlocking(options.getPath());
     options.setPath(null).setValue(store);
     testKeyStore(options);
@@ -292,12 +294,12 @@ public class KeyStoreTest extends VertxTestBase {
 
   @Test
   public void testPKCS12Path() throws Exception {
-    testKeyStore(getServerCertOptions(KeyCert.PKCS12));
+    testKeyStore(TLSCert.PKCS12.getServerKeyCertOptions());
   }
 
   @Test
   public void testPKCS12Value() throws Exception {
-    PfxOptions options = (PfxOptions) getServerCertOptions(KeyCert.PKCS12);
+    PfxOptions options = (PfxOptions) TLSCert.PKCS12.getServerKeyCertOptions();
     Buffer store = vertx.fileSystem().readFileBlocking(options.getPath());
     options.setPath(null).setValue(store);
     testKeyStore(options);
@@ -305,12 +307,12 @@ public class KeyStoreTest extends VertxTestBase {
 
   @Test
   public void testKeyCertPath() throws Exception {
-    testKeyStore(getServerCertOptions(KeyCert.PEM));
+    testKeyStore(TLSCert.PEM.getServerKeyCertOptions());
   }
 
   @Test
   public void testKeyCertValue() throws Exception {
-    PemKeyCertOptions options = (PemKeyCertOptions) getServerCertOptions(KeyCert.PEM);
+    PemKeyCertOptions options = (PemKeyCertOptions) TLSCert.PEM.getServerKeyCertOptions();
     Buffer key = vertx.fileSystem().readFileBlocking(options.getKeyPath());
     options.setKeyValue(null).setKeyValue(key);
     Buffer cert = vertx.fileSystem().readFileBlocking(options.getCertPath());
@@ -320,12 +322,12 @@ public class KeyStoreTest extends VertxTestBase {
 
   @Test
   public void testCaPath() throws Exception {
-    testTrustStore(getServerTrustOptions(Trust.PEM));
+    testTrustStore(TLSCert.PEM.getServerTrustOptions());
   }
 
   @Test
   public void testCaPathValue() throws Exception {
-    PemTrustOptions options = (PemTrustOptions) getServerTrustOptions(Trust.PEM);
+    PemTrustOptions options = (PemTrustOptions) TLSCert.PEM.getServerTrustOptions();
     options.getCertPaths().
         stream().
         map(vertx.fileSystem()::readFileBlocking).
@@ -336,13 +338,13 @@ public class KeyStoreTest extends VertxTestBase {
 
   @Test
   public void testKeyOptionsEquality() {
-    JksOptions jksOptions = (JksOptions) getServerCertOptions(KeyCert.JKS);
+    JksOptions jksOptions = (JksOptions) TLSCert.JKS.getServerKeyCertOptions();
     JksOptions jksOptionsCopy = new JksOptions(jksOptions);
 
-    PfxOptions pfxOptions = (PfxOptions) getServerCertOptions(KeyCert.PKCS12);
+    PfxOptions pfxOptions = (PfxOptions) TLSCert.PKCS12.getServerKeyCertOptions();
     PfxOptions pfxOptionsCopy = new PfxOptions(pfxOptions);
 
-    PemKeyCertOptions pemKeyCertOptions = (PemKeyCertOptions) getServerCertOptions(KeyCert.PEM);
+    PemKeyCertOptions pemKeyCertOptions = (PemKeyCertOptions) TLSCert.PEM.getServerKeyCertOptions();
     PemKeyCertOptions pemKeyCertOptionsCopy = new PemKeyCertOptions(pemKeyCertOptions);
 
     assertEquals(jksOptions, jksOptionsCopy);
@@ -357,6 +359,9 @@ public class KeyStoreTest extends VertxTestBase {
 
   private void testKeyStore(KeyCertOptions options) throws Exception {
     KeyStoreHelper helper = KeyStoreHelper.create((VertxInternal) vertx, options);
+    KeyStore keyStore = helper.loadStore((VertxInternal) vertx);
+    Enumeration<String> aliases = keyStore.aliases();
+    assertTrue(aliases.hasMoreElements());
     KeyManager[] keyManagers = helper.getKeyMgrs((VertxInternal) vertx);
     assertTrue(keyManagers.length > 0);
   }

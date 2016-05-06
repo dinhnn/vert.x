@@ -18,7 +18,9 @@ package io.vertx.core;
 
 import io.netty.channel.EventLoopGroup;
 import io.vertx.codegen.annotations.CacheReturn;
+import io.vertx.codegen.annotations.Fluent;
 import io.vertx.codegen.annotations.GenIgnore;
+import io.vertx.codegen.annotations.Nullable;
 import io.vertx.codegen.annotations.VertxGen;
 import io.vertx.core.datagram.DatagramSocket;
 import io.vertx.core.datagram.DatagramSocketOptions;
@@ -105,7 +107,7 @@ public interface Vertx extends Measured {
    *
    * @return The current context or null if no current context
    */
-  static Context currentContext() {
+  static @Nullable Context currentContext() {
     return factory.context();
   }
 
@@ -452,6 +454,9 @@ public interface Vertx extends Measured {
    * A {@code Future} instance is passed into {@code blockingCodeHandler}. When the blocking code successfully completes,
    * the handler should call the {@link Future#complete} or {@link Future#complete(Object)} method, or the {@link Future#fail}
    * method if it failed.
+   * <p>
+   * In the {@code blockingCodeHandler} the current context remains the original context and therefore any task
+   * scheduled in the {@code blockingCodeHandler} will be executed on the this context and not on the worker thread.
    *
    * @param blockingCodeHandler  handler representing the blocking code to run
    * @param resultHandler  handler that will be called when the blocking code is complete
@@ -474,6 +479,47 @@ public interface Vertx extends Measured {
    */
   @GenIgnore
   EventLoopGroup nettyEventLoopGroup();
+
+  /**
+   * Like {@link #createWorkerExecutor(String, int)} but with the {@link VertxOptions#setWorkerPoolSize} {@code poolSize}.
+   */
+  WorkerExecutor createWorkerExecutor(String name);
+
+  /**
+   * Like {@link #createWorkerExecutor(String, int, long)} but with the {@link VertxOptions#setMaxWorkerExecuteTime} {@code maxExecuteTime}.
+   */
+  WorkerExecutor createWorkerExecutor(String name, int poolSize);
+
+  /**
+   * Create a named worker executor, the executor should be closed when it's not needed anymore to release
+   * resources.<p/>
+   *
+   * This method can be called mutiple times with the same {@code name}. Executors with the same name will share
+   * the same worker pool. The worker pool size and max execute time are set when the worker pool is created and
+   * won't change after.<p>
+   *
+   * The worker pool is released when all the {@link WorkerExecutor} sharing the same name are closed.
+   *
+   * @param name the name of the worker executor
+   * @param poolSize the size of the pool
+   * @param maxExecuteTime the value of max worker execute time, in ms
+   * @return the named worker executor
+   */
+  WorkerExecutor createWorkerExecutor(String name, int poolSize, long maxExecuteTime);
+
+  /**
+   * Set a default exception handler for {@link Context}, set on {@link Context#exceptionHandler(Handler)} at creation.
+   *
+   * @param handler the exception handler
+   * @return a reference to this, so the API can be used fluently
+   */
+  @Fluent
+  Vertx exceptionHandler(@Nullable Handler<Throwable> handler);
+
+  /**
+   * @return the current default exception handler
+   */
+  @Nullable @GenIgnore Handler<Throwable> exceptionHandler();
 
   static final VertxFactory factory = ServiceHelper.loadFactory(VertxFactory.class);
 }

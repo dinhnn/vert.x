@@ -39,7 +39,7 @@ import java.util.function.Function;
 /**
  * @author <a href="mailto:julien@julienviet.com">Julien Viet</a>
  */
-public class MetricsContextTest extends AsyncTestBase {
+public class MetricsContextTest extends VertxTestBase {
 
   @Test
   public void testFactory() throws Exception {
@@ -50,7 +50,7 @@ public class MetricsContextTest extends AsyncTestBase {
       metricsContext.set(Vertx.currentContext());
       return new DummyVertxMetrics();
     };
-    Vertx vertx = Vertx.vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
+    vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
     assertSame(Thread.currentThread(), metricsThread.get());
     assertNull(metricsContext.get());
   }
@@ -65,7 +65,7 @@ public class MetricsContextTest extends AsyncTestBase {
       metricsContext.set(Vertx.currentContext());
       return new DummyVertxMetrics();
     };
-    Vertx.clusteredVertx(new VertxOptions().setClustered(true).setMetricsOptions(new MetricsOptions().setEnabled(true)), onSuccess(vertx -> {
+    clusteredVertx(new VertxOptions().setClustered(true).setMetricsOptions(new MetricsOptions().setEnabled(true)), onSuccess(vertx -> {
       assertSame(testThread, metricsThread.get());
       assertNull(metricsContext.get());
       testComplete();
@@ -109,7 +109,7 @@ public class MetricsContextTest extends AsyncTestBase {
             checker.accept(expectedThread.get(), expectedContext.get());
           }
           @Override
-          public Void connected(SocketAddress remoteAddress) {
+          public Void connected(SocketAddress remoteAddress, String remoteName) {
             socketConnectedCalled.set(true);
             checker.accept(expectedThread.get(), expectedContext.get());
             return null;
@@ -141,7 +141,7 @@ public class MetricsContextTest extends AsyncTestBase {
       }
     };
     CountDownLatch latch = new CountDownLatch(1);
-    Vertx vertx = Vertx.vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
+    Vertx vertx = vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
     Context ctx = contextFactory.apply(vertx);
     ctx.runOnContext(v1 -> {
       HttpServer server = vertx.createHttpServer().requestHandler(req -> {
@@ -212,7 +212,7 @@ public class MetricsContextTest extends AsyncTestBase {
             checker.accept(expectedThread.get(), expectedContext.get());
           }
           @Override
-          public Void connected(SocketAddress remoteAddress) {
+          public Void connected(SocketAddress remoteAddress, String remoteName) {
             socketConnectedCalled.set(true);
             checker.accept(expectedThread.get(), expectedContext.get());
             return null;
@@ -244,7 +244,7 @@ public class MetricsContextTest extends AsyncTestBase {
       }
     };
     CountDownLatch latch = new CountDownLatch(1);
-    Vertx vertx = Vertx.vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
+    Vertx vertx = vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
     Context ctx = contextFactory.apply(vertx);
     ctx.runOnContext(v1 -> {
       HttpServer server = vertx.createHttpServer().websocketHandler(ws -> {
@@ -315,7 +315,7 @@ public class MetricsContextTest extends AsyncTestBase {
             responseEndCalled.set(true);
           }
           @Override
-          public Void connected(SocketAddress remoteAddress) {
+          public Void connected(SocketAddress remoteAddress, String remoteName) {
             socketConnectedCalled.set(true);
             checker.accept(expectedThread.get(), expectedContext.get());
             return null;
@@ -346,7 +346,7 @@ public class MetricsContextTest extends AsyncTestBase {
         };
       }
     };
-    Vertx vertx = Vertx.vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
+    Vertx vertx = vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
     HttpServer server = vertx.createHttpServer();
     server.requestHandler(req -> {
       req.endHandler(buf -> {
@@ -425,7 +425,7 @@ public class MetricsContextTest extends AsyncTestBase {
             websocketDisconnected.set(true);
           }
           @Override
-          public Void connected(SocketAddress remoteAddress) {
+          public Void connected(SocketAddress remoteAddress, String remoteName) {
             socketConnectedCalled.set(true);
             checker.accept(expectedThread.get(), expectedContext.get());
             return null;
@@ -456,7 +456,7 @@ public class MetricsContextTest extends AsyncTestBase {
         };
       }
     };
-    Vertx vertx = Vertx.vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
+    Vertx vertx = vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
     HttpServer server = vertx.createHttpServer();
     server.websocketHandler(ws -> {
       ws.handler(buf -> {
@@ -522,7 +522,7 @@ public class MetricsContextTest extends AsyncTestBase {
       public TCPMetrics createMetrics(NetServer server, SocketAddress localAddress, NetServerOptions options) {
         return new DummyTCPMetrics() {
           @Override
-          public Void connected(SocketAddress remoteAddress) {
+          public Void connected(SocketAddress remoteAddress, String remoteName) {
             socketConnectedCalled.set(true);
             checker.accept(expectedThread.get(), expectedContext.get());
             return null;
@@ -554,7 +554,7 @@ public class MetricsContextTest extends AsyncTestBase {
       }
     };
     CountDownLatch latch = new CountDownLatch(1);
-    Vertx vertx = Vertx.vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
+    Vertx vertx = vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
     Context ctx = contextFactory.apply(vertx);
     ctx.runOnContext(v1 -> {
       NetServer server = vertx.createNetServer().connectHandler(so -> {
@@ -615,7 +615,7 @@ public class MetricsContextTest extends AsyncTestBase {
       public TCPMetrics createMetrics(NetClient client, NetClientOptions options) {
         return new DummyTCPMetrics() {
           @Override
-          public Void connected(SocketAddress remoteAddress) {
+          public Void connected(SocketAddress remoteAddress, String remoteName) {
             socketConnectedCalled.set(true);
             checker.accept(expectedThread.get(), expectedContext.get());
             return null;
@@ -647,7 +647,7 @@ public class MetricsContextTest extends AsyncTestBase {
       }
     };
     CountDownLatch latch = new CountDownLatch(1);
-    Vertx vertx = Vertx.vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
+    Vertx vertx = vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
     Context ctx = contextFactory.apply(vertx);
     NetServer server = vertx.createNetServer().connectHandler(so -> {
       so.handler(buf -> {
@@ -707,7 +707,7 @@ public class MetricsContextTest extends AsyncTestBase {
       public DatagramSocketMetrics createMetrics(DatagramSocket socket, DatagramSocketOptions options) {
         return new DummyDatagramMetrics() {
           @Override
-          public void listening(SocketAddress localAddress) {
+          public void listening(String localName, SocketAddress localAddress) {
             listening.set(true);
             checker.accept(expectedThread.get(), expectedContext.get());
           }
@@ -732,7 +732,7 @@ public class MetricsContextTest extends AsyncTestBase {
         };
       }
     };
-    Vertx vertx = Vertx.vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
+    Vertx vertx = vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
     Context ctx = contextFactory.apply(vertx);
     ctx.runOnContext(v1 -> {
       expectedThread.set(Thread.currentThread());
@@ -779,7 +779,7 @@ public class MetricsContextTest extends AsyncTestBase {
         };
       }
     };
-    Vertx vertx = Vertx.vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
+    Vertx vertx = vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
     vertx.eventBus();
     executeInVanillaThread(() -> {
       vertx.close(onSuccess(v -> {
@@ -816,7 +816,7 @@ public class MetricsContextTest extends AsyncTestBase {
             return true;
           }
           @Override
-          public Void handlerRegistered(String address, boolean replyHandler) {
+          public Void handlerRegistered(String address, String repliedAddress) {
             registeredCalled.set(true);
             return null;
           }
@@ -838,7 +838,7 @@ public class MetricsContextTest extends AsyncTestBase {
         };
       }
     };
-    Vertx vertx = Vertx.vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
+    Vertx vertx = vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
     EventBus eb = vertx.eventBus();
     runOnContext.accept(vertx, v -> {
       MessageConsumer<Object> consumer = eb.consumer("the_address");
@@ -894,7 +894,7 @@ public class MetricsContextTest extends AsyncTestBase {
         checker.accept(verticleThread.get(), verticleContext.get());
       }
     };
-    Vertx vertx = Vertx.vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
+    Vertx vertx = vertx(new VertxOptions().setMetricsOptions(new MetricsOptions().setEnabled(true)));
     vertx.deployVerticle(new AbstractVerticle() {
       @Override
       public void start() throws Exception {

@@ -20,17 +20,21 @@ import io.vertx.core.DeploymentOptions;
 import io.vertx.core.Starter;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
+import io.vertx.core.impl.launcher.VertxCommandLauncher;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.metrics.MetricsOptions;
 import io.vertx.core.metrics.impl.DummyVertxMetrics;
 import io.vertx.core.spi.VertxMetricsFactory;
 import io.vertx.core.spi.metrics.VertxMetrics;
+import org.junit.AfterClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
+import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.HashSet;
@@ -41,27 +45,43 @@ import java.util.Set;
  */
 public class StarterTest extends VertxTestBase {
 
+  Vertx vertx;
+
   @Override
   public void setUp() throws Exception {
     super.setUp();
     TestVerticle.instanceCount.set(0);
     TestVerticle.processArgs = null;
     TestVerticle.conf = null;
+
+    VertxCommandLauncher.resetProcessArguments();
+
+    File manifest = new File("target/test-classes/META-INF/MANIFEST-Starter.MF");
+    if (!manifest.isFile()) {
+      throw new IllegalStateException("Cannot find the MANIFEST-Starter.MF file");
+    }
+    File target = new File("target/test-classes/META-INF/MANIFEST.MF");
+    Files.copy(manifest.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
   }
 
   @Override
   public void tearDown() throws Exception {
     clearProperties();
     super.tearDown();
+
+    if (vertx != null) {
+      vertx.close();
+    }
   }
 
   @Test
   public void testVersion() throws Exception {
-    String[] args = new String[] {"-version"};
+    String[] args = {"-version"};
     MyStarter starter = new MyStarter();
     starter.run(args);
     // TODO some way of getting this from the version in pom.xml
     assertEquals(System.getProperty("vertxVersion"), starter.getVersion());
+    cleanup(starter);
   }
 
   @Test
@@ -76,69 +96,82 @@ public class StarterTest extends VertxTestBase {
 
   public void testRunVerticleMultiple(int instances) throws Exception {
     MyStarter starter = new MyStarter();
-    String[] args = new String[] {"run", "java:" + TestVerticle.class.getCanonicalName(), "-instances", String.valueOf(instances)};
+    String[] args = {"run", "java:" + TestVerticle.class.getCanonicalName(), "-instances", String.valueOf(instances)};
     starter.run(args);
     waitUntil(() -> TestVerticle.instanceCount.get() == instances);
     assertEquals(Arrays.asList(args), TestVerticle.processArgs);
     starter.assertHooksInvoked();
+    cleanup(starter);
   }
 
   @Test
   public void testRunVerticleClustered() throws Exception {
     MyStarter starter = new MyStarter();
-    String[] args = new String[] {"run", "java:" + TestVerticle.class.getCanonicalName(), "-cluster"};
+    String[] args = {"run", "java:" + TestVerticle.class.getCanonicalName(), "-cluster"};
     starter.run(args);
     waitUntil(() -> TestVerticle.instanceCount.get() == 1);
     assertEquals(Arrays.asList(args), TestVerticle.processArgs);
     starter.assertHooksInvoked();
+    cleanup(starter);
   }
 
   @Test
   public void testRunVerticleHA() throws Exception {
     MyStarter starter = new MyStarter();
-    String[] args = new String[] {"run", "java:" + TestVerticle.class.getCanonicalName(), "-ha"};
+    String[] args = {"run", "java:" + TestVerticle.class.getCanonicalName(), "-ha"};
     starter.run(args);
     waitUntil(() -> TestVerticle.instanceCount.get() == 1);
     assertEquals(Arrays.asList(args), TestVerticle.processArgs);
     starter.assertHooksInvoked();
+    cleanup(starter);
   }
 
 
   @Test
   public void testRunVerticleWithMainVerticleInManifestNoArgs() throws Exception {
     MyStarter starter = new MyStarter();
-    String[] args = new String[0];
+    String[] args = {};
     starter.run(args);
     waitUntil(() -> TestVerticle.instanceCount.get() == 1);
     assertEquals(Arrays.asList(args), TestVerticle.processArgs);
+    cleanup(starter);
+  }
+
+  private void cleanup(MyStarter starter) {
+    if (starter != null  && starter.getVertx() != null) {
+      starter.getVertx().close();
+    }
   }
 
   @Test
   public void testRunVerticleWithMainVerticleInManifestWithHA() throws Exception {
     MyStarter starter = new MyStarter();
-    String[] args = new String[] {"-ha"};
+    String[] args = {"-ha"};
     starter.run(args);
     waitUntil(() -> TestVerticle.instanceCount.get() == 1);
     assertEquals(Arrays.asList(args), TestVerticle.processArgs);
+    cleanup(starter);
   }
 
   @Test
   public void testRunVerticleWithMainVerticleInManifestWithArgs() throws Exception {
     MyStarter starter = new MyStarter();
-    String[] args = new String[] {"-cluster", "-worker"};
+    String[] args = {"-cluster", "-worker"};
     starter.run(args);
     waitUntil(() -> TestVerticle.instanceCount.get() == 1);
     assertEquals(Arrays.asList(args), TestVerticle.processArgs);
+    cleanup(starter);
   }
 
   @Test
   public void testRunVerticleWithConfString() throws Exception {
     MyStarter starter = new MyStarter();
     JsonObject conf = new JsonObject().put("foo", "bar").put("wibble", 123);
-    String[] args = new String[] {"run", "java:" + TestVerticle.class.getCanonicalName(), "-conf", conf.encode()};
+    String[] args = {"run", "java:" + TestVerticle.class.getCanonicalName(), "-conf", conf.encode()};
     starter.run(args);
     waitUntil(() -> TestVerticle.instanceCount.get() == 1);
     assertEquals(conf, TestVerticle.conf);
+    cleanup(starter);
   }
 
   @Rule
@@ -152,10 +185,11 @@ public class StarterTest extends VertxTestBase {
     MyStarter starter = new MyStarter();
     JsonObject conf = new JsonObject().put("foo", "bar").put("wibble", 123);
     Files.write(tempFile, conf.encode().getBytes());
-    String[] args = new String[]{"run", "java:" + TestVerticle.class.getCanonicalName(), "-conf", tempFile.toString()};
+    String[] args = {"run", "java:" + TestVerticle.class.getCanonicalName(), "-conf", tempFile.toString()};
     starter.run(args);
     waitUntil(() -> TestVerticle.instanceCount.get() == 1);
     assertEquals(conf, TestVerticle.conf);
+    cleanup(starter);
   }
 
   @Test
@@ -179,9 +213,9 @@ public class StarterTest extends VertxTestBase {
     MyStarter starter = new MyStarter();
     String[] args;
     if (clustered) {
-      args = new String[]{"run", "java:" + TestVerticle.class.getCanonicalName(), "-cluster"};
+      args = new String[] {"run", "java:" + TestVerticle.class.getCanonicalName(), "-cluster"};
     } else {
-      args = new String[]{"run", "java:" + TestVerticle.class.getCanonicalName()};
+      args = new String[] {"run", "java:" + TestVerticle.class.getCanonicalName()};
     }
     starter.run(args);
     waitUntil(() -> TestVerticle.instanceCount.get() == 1);
@@ -189,10 +223,11 @@ public class StarterTest extends VertxTestBase {
     VertxOptions opts = starter.getVertxOptions();
 
     assertEquals(123, opts.getEventLoopPoolSize(), 0);
-    assertEquals(123767667l, opts.getMaxEventLoopExecuteTime());
+    assertEquals(123767667L, opts.getMaxEventLoopExecuteTime());
     assertEquals(true, opts.getMetricsOptions().isEnabled());
     assertEquals("somegroup", opts.getHAGroup());
 
+    cleanup(starter);
   }
 
   private void clearProperties() {
@@ -205,7 +240,7 @@ public class StarterTest extends VertxTestBase {
         toClear.add(propName);
       }
     }
-    for (String propName: toClear) {
+    for (String propName : toClear) {
       System.clearProperty(propName);
     }
   }
@@ -218,6 +253,7 @@ public class StarterTest extends VertxTestBase {
         public VertxMetrics metrics(Vertx vertx, VertxOptions options) {
           return new DummyVertxMetrics();
         }
+
         @Override
         public MetricsOptions newOptions() {
           return new CustomMetricsOptions();
@@ -226,12 +262,14 @@ public class StarterTest extends VertxTestBase {
       System.setProperty(Starter.METRICS_OPTIONS_PROP_PREFIX + "enabled", "true");
       System.setProperty(Starter.METRICS_OPTIONS_PROP_PREFIX + "customProperty", "customPropertyValue");
       MyStarter starter = new MyStarter();
-      String[] args = new String[]{"run", "java:" + TestVerticle.class.getCanonicalName()};
+      String[] args = {"run", "java:" + TestVerticle.class.getCanonicalName()};
       starter.run(args);
       waitUntil(() -> TestVerticle.instanceCount.get() == 1);
       VertxOptions opts = starter.getVertxOptions();
       CustomMetricsOptions custom = (CustomMetricsOptions) opts.getMetricsOptions();
       assertEquals("customPropertyValue", custom.getCustomProperty());
+
+      cleanup(starter);
     } finally {
       ConfigurableMetricsFactory.delegate = null;
     }
@@ -245,7 +283,7 @@ public class StarterTest extends VertxTestBase {
     // Should be ignored
 
     MyStarter starter = new MyStarter();
-    String[] args = new String[] {"run", "java:" + TestVerticle.class.getCanonicalName()};
+    String[] args = {"run", "java:" + TestVerticle.class.getCanonicalName()};
     starter.run(args);
     waitUntil(() -> TestVerticle.instanceCount.get() == 1);
 
@@ -255,6 +293,7 @@ public class StarterTest extends VertxTestBase {
       def.getMetricsOptions().setEnabled(true);
     }
     assertEquals(def, opts);
+    cleanup(starter);
   }
 
   @Test
@@ -264,7 +303,7 @@ public class StarterTest extends VertxTestBase {
     // Should be ignored
 
     MyStarter starter = new MyStarter();
-    String[] args = new String[] {"run", "java:" + TestVerticle.class.getCanonicalName()};
+    String[] args = {"run", "java:" + TestVerticle.class.getCanonicalName()};
     starter.run(args);
     waitUntil(() -> TestVerticle.instanceCount.get() == 1);
 
@@ -274,6 +313,7 @@ public class StarterTest extends VertxTestBase {
       def.getMetricsOptions().setEnabled(true);
     }
     assertEquals(def, opts);
+    cleanup(starter);
   }
 
   @Test
@@ -283,19 +323,22 @@ public class StarterTest extends VertxTestBase {
     String cl = "run java:" + TestVerticle.class.getCanonicalName() + " -instances " + instances;
     starter.run(cl);
     waitUntil(() -> TestVerticle.instanceCount.get() == instances);
+    cleanup(starter);
   }
 
   class MyStarter extends Starter {
     boolean beforeStartingVertxInvoked = false;
     boolean afterStartingVertxInvoked = false;
     boolean beforeDeployingVerticle = false;
-    
-    public Vertx getVert() {
+
+    public Vertx getVertx() {
       return vertx;
     }
+
     public VertxOptions getVertxOptions() {
       return options;
     }
+
     public DeploymentOptions getDeploymentOptions() {
       return deploymentOptions;
     }
@@ -309,21 +352,24 @@ public class StarterTest extends VertxTestBase {
     public void run(String commandLine) {
       super.run(commandLine);
     }
-    
+
     @Override
     public void beforeStartingVertx(VertxOptions options) {
       beforeStartingVertxInvoked = true;
     }
+
     @Override
     public void afterStartingVertx() {
       afterStartingVertxInvoked = true;
     }
+
     @Override
     protected void beforeDeployingVerticle(DeploymentOptions deploymentOptions) {
       beforeDeployingVerticle = true;
     }
-    
+
     public void assertHooksInvoked() {
+      StarterTest.this.vertx = vertx;
       assertTrue(beforeStartingVertxInvoked);
       assertTrue(afterStartingVertxInvoked);
       assertTrue(beforeDeployingVerticle);

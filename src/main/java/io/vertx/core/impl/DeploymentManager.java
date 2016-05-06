@@ -137,23 +137,37 @@ public class DeploymentManager {
             deployVerticle(resolvedName, options, completionHandler);
             return;
           } else {
-            Verticle[] verticles = new Verticle[options.getInstances()];
-            try {
-              for (int i = 0; i < options.getInstances(); i++) {
-                verticles[i] = verticleFactory.createVerticle(identifier, cl);
-                if (verticles[i] == null) {
-                  throw new NullPointerException("VerticleFactory::createVerticle returned null");
+            if (verticleFactory.blockingCreate()) {
+              vertx.<Verticle[]>executeBlocking(createFut -> {
+                try {
+                  Verticle[] verticles = createVerticles(verticleFactory, identifier, options.getInstances(), cl);
+                  createFut.complete(verticles);
+                } catch (Exception e) {
+                  createFut.fail(e);
                 }
-              }
-              doDeploy(identifier, deploymentID, options, parentContext, callingContext, completionHandler, cl, verticles);
+              }, res -> {
+                if (res.succeeded()) {
+                  doDeploy(identifier, deploymentID, options, parentContext, callingContext, completionHandler, cl, res.result());
+                } else {
+                  // Try the next one
+                  doDeployVerticle(iter, res.cause(), identifier, deploymentID, options, parentContext, callingContext, cl, completionHandler);
+                }
+              });
               return;
-            } catch (Exception e) {
-              err = e;
+            } else {
+              try {
+                Verticle[] verticles = createVerticles(verticleFactory, identifier, options.getInstances(), cl);
+                doDeploy(identifier, deploymentID, options, parentContext, callingContext, completionHandler, cl, verticles);
+                return;
+              } catch (Exception e) {
+                err = e;
+              }
             }
           }
         } else {
           err = ar.cause();
         }
+        // Try the next one
         doDeployVerticle(iter, err, identifier, deploymentID, options, parentContext, callingContext, cl, completionHandler);
       });
     } else {
@@ -164,6 +178,17 @@ public class DeploymentManager {
         // not handled or impossible ?
       }
     }
+  }
+
+  private Verticle[] createVerticles(VerticleFactory verticleFactory, String identifier, int instances, ClassLoader cl) throws Exception {
+    Verticle[] verticles = new Verticle[instances];
+    for (int i = 0; i < instances; i++) {
+      verticles[i] = verticleFactory.createVerticle(identifier, cl);
+      if (verticles[i] == null) {
+        throw new NullPointerException("VerticleFactory::createVerticle returned null");
+      }
+    }
+    return verticles;
   }
 
   private String getSuffix(int pos, String str) {
@@ -373,6 +398,7 @@ public class DeploymentManager {
         completionHandler.handle(result);
       } catch (Throwable t) {
         log.error("Failure in calling handler", t);
+        throw t;
       }
     });
   }
@@ -386,6 +412,7 @@ public class DeploymentManager {
       throw new IllegalArgumentException("If multi-threaded then must be worker too");
     }
     JsonObject conf = options.getConfig() == null ? new JsonObject() : options.getConfig().copy(); // Copy it
+    String poolName = options.getWorkerPoolName();
 
     Deployment parent = parentContext.getDeployment();
     DeploymentImpl deployment = new DeploymentImpl(parent, deploymentID, identifier, options);
@@ -393,8 +420,13 @@ public class DeploymentManager {
     AtomicInteger deployCount = new AtomicInteger();
     AtomicBoolean failureReported = new AtomicBoolean();
     for (Verticle verticle: verticles) {
-      ContextImpl context = options.isWorker() ? vertx.createWorkerContext(options.isMultiThreaded(), deploymentID, conf, tccl) :
-        vertx.createEventLoopContext(deploymentID, conf, tccl);
+      NamedWorkerExecutor workerExec = poolName != null ? vertx.createWorkerExecutor(poolName, options.getWorkerPoolSize()) : null;
+      WorkerPool pool = workerExec != null ? workerExec.getPool() : null;
+      ContextImpl context = options.isWorker() ? vertx.createWorkerContext(options.isMultiThreaded(), deploymentID, pool, conf, tccl) :
+        vertx.createEventLoopContext(deploymentID, pool, conf, tccl);
+      if (workerExec != null) {
+        context.addCloseHook(workerExec);
+      }
       context.setDeployment(deployment);
       deployment.addVerticle(new VerticleHolder(verticle, context));
       context.runOnContext(v -> {

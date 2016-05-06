@@ -22,7 +22,6 @@ import io.vertx.codegen.annotations.VertxGen;
 import io.vertx.core.AsyncResult;
 import io.vertx.core.Handler;
 import io.vertx.core.metrics.Measured;
-import io.vertx.core.streams.WriteStream;
 
 /**
  * A Vert.x event-bus is a light-weight distributed messaging system which allows different parts of your application,
@@ -62,7 +61,6 @@ public interface EventBus extends Measured {
    */
   @Fluent
   <T> EventBus send(String address, Object message, Handler<AsyncResult<Message<T>>> replyHandler);
-
 
   /**
    * Like {@link #send(String, Object)} but specifying {@code options} that can be used to configure the delivery.
@@ -195,13 +193,6 @@ public interface EventBus extends Measured {
   <T> MessageProducer<T> publisher(String address, DeliveryOptions options);
 
   /**
-   * Close the event bus and release any resources held
-   *
-   * @param completionHandler may be {@code null}
-   */
-  void close(Handler<AsyncResult<Void>> completionHandler);
-
-  /**
    * Register a message codec.
    * <p>
    * You can register a message codec if you want to send any non standard message across the event bus.
@@ -244,10 +235,42 @@ public interface EventBus extends Measured {
    * Unregister a default message codec.
    * <p>
    * @param clazz  the class for which the codec was registered
-   * @return @return a reference to this, so the API can be used fluently
+   * @return a reference to this, so the API can be used fluently
    */
   @GenIgnore
   EventBus unregisterDefaultCodec(Class clazz);
+
+  /**
+   * Start the event bus. This would not normally be called in user code
+   *
+   * @param completionHandler  handler will be called when event bus is started
+   */
+  @GenIgnore
+  void start(Handler<AsyncResult<Void>> completionHandler);
+
+  /**
+   * Close the event bus and release any resources held. This would not normally be called in user code
+   *
+   * @param completionHandler may be {@code null}
+   */
+  @GenIgnore
+  void close(Handler<AsyncResult<Void>> completionHandler);
+
+  /**
+   * Add an interceptor that will be called whenever a message is sent from Vert.x
+   *
+   * @param interceptor  the interceptor
+   * @return a reference to this, so the API can be used fluently
+   */
+  EventBus addInterceptor(Handler<SendContext> interceptor);
+
+  /**
+   * Remove an interceptor
+   *
+   * @param interceptor  the interceptor
+   * @return a reference to this, so the API can be used fluently
+   */
+  EventBus removeInterceptor(Handler<SendContext> interceptor);
 
 }
 

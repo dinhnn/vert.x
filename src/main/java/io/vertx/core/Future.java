@@ -16,9 +16,13 @@
 
 package io.vertx.core;
 
+import io.vertx.codegen.annotations.CacheReturn;
+import io.vertx.codegen.annotations.Fluent;
 import io.vertx.codegen.annotations.GenIgnore;
 import io.vertx.codegen.annotations.VertxGen;
 import io.vertx.core.spi.FutureFactory;
+
+import java.util.function.Function;
 
 /**
  * Represents the result of an action that may, or may not, have occurred yet.
@@ -99,9 +103,11 @@ public interface Future<T> extends AsyncResult<T> {
    * future is completed.
    *
    * @param handler  the Handler that will be called with the result
+   * @return a reference to this, so it can be used fluently
    *
    */
-  void setHandler(Handler<AsyncResult<T>> handler);
+  @Fluent
+  Future<T> setHandler(Handler<AsyncResult<T>> handler);
 
   /**
    * Set the result. Any handler will be called, if there is one, and the future will be marked as completed.
@@ -123,7 +129,6 @@ public interface Future<T> extends AsyncResult<T> {
    *
    * @param throwable  the failure cause
    */
-  @GenIgnore
   void fail(Throwable throwable);
 
   /**
@@ -132,6 +137,173 @@ public interface Future<T> extends AsyncResult<T> {
    * @param failureMessage  the failure message
    */
   void fail(String failureMessage);
+
+  /**
+   * The result of the operation. This will be null if the operation failed.
+   *
+   * @return the result or null if the operation failed.
+   */
+  @Override
+  T result();
+
+  /**
+   * A Throwable describing failure. This will be null if the operation succeeded.
+   *
+   * @return the cause or null if the operation succeeded.
+   */
+  @Override
+  Throwable cause();
+
+  /**
+   * Did it succeed?
+   *
+   * @return true if it succeded or false otherwise
+   */
+  @Override
+  boolean succeeded();
+
+  /**
+   * Did it fail?
+   *
+   * @return true if it failed or false otherwise
+   */
+  @Override
+  boolean failed();
+
+  /**
+   * Compose this future with a provided {@code next} future.<p>
+   *
+   * When this future succeeds, the {@code handler} will be called with the completed value, this handler
+   * should complete the next future.<p>
+   *
+   * If the {@code handler} throws an exception, the returned future will be failed with this exception.<p>
+   *
+   * When this future fails, the failure will be propagated to the {@code next} future and the {@code handler}
+   * will not be called.
+   *
+   * @param handler the handler
+   * @param composed the composed future
+   * @return the composed future, used for chaining
+   */
+  default <U> Future<U> compose(Handler<T> handler, Future<U> composed) {
+    setHandler(ar -> {
+      if (ar.succeeded()) {
+        try {
+          handler.handle(ar.result());
+        } catch (Throwable err) {
+          if (composed.isComplete()) {
+            throw err;
+          }
+          composed.fail(err);
+        }
+      } else {
+        composed.fail(ar.cause());
+      }
+    });
+    return composed;
+  }
+
+  /**
+   * Compose this future with a {@code mapper} function.<p>
+   *
+   * When this future succeeds, the {@code mapper} will be called with the completed value and this mapper
+   * returns a future. This returned future completion will trigger the future returned by this method call.<p>
+   *
+   * If the {@code mapper} throws an exception, the returned future will be failed with this exception.<p>
+   *
+   * When this future fails, the failure will be propagated to the returned future and the {@code mapper}
+   * will not be called.
+   *
+   * @param mapper the mapper function
+   * @return the composed future
+   */
+  default <U> Future<U> compose(Function<T, Future<U>> mapper) {
+    Future<U> ret = Future.future();
+    setHandler(ar -> {
+      if (ar.succeeded()) {
+        Future<U> apply;
+        try {
+          apply = mapper.apply(ar.result());
+        } catch (Throwable e) {
+          ret.fail(e);
+          return;
+        }
+        apply.setHandler(ret.completer());
+      } else {
+        ret.fail(ar.cause());
+      }
+    });
+    return ret;
+  }
+
+  /**
+   * Apply a {@code mapper} function on this future.<p>
+   *
+   * When this future succeeds, the {@code mapper} will be called with the completed value and this mapper
+   * returns a value. This value will complete the future returned by this method call.<p>
+   *
+   * If the {@code mapper} throws an exception, the returned future will be failed with this exception.<p>
+   *
+   * When this future fails, the failure will be propagated to the returned future and the {@code mapper}
+   * will not be called.
+   *
+   * @param mapper the mapper function
+   * @return the mapped future
+   */
+  default <U> Future<U> map(Function<T, U> mapper) {
+    Future<U> ret = Future.future();
+    setHandler(ar -> {
+      if (ar.succeeded()) {
+        U mapped;
+        try {
+          mapped = mapper.apply(ar.result());
+        } catch (Throwable e) {
+          ret.fail(e);
+          return;
+        }
+        ret.complete(mapped);
+      } else {
+        ret.fail(ar.cause());
+      }
+    });
+    return ret;
+  }
+
+  /**
+   * Map the result of a future to a specific {@code value}.<p>
+   *
+   * When this future succeeds, this {@code value} will complete the future returned by this method call.<p>
+   *
+   * When this future fails, the failure will be propagated to the returned future.
+   *
+   * @param value the value that eventually completes the mapped future
+   * @return the mapped future
+   */
+  default <V> Future<V> map(V value) {
+    Future<V> ret = Future.future();
+    setHandler(ar -> {
+      if (ar.succeeded()) {
+        ret.complete(value);
+      } else {
+        ret.fail(ar.cause());
+      }
+    });
+    return ret;
+  }
+
+  /**
+   * @return an handler completing this future
+   */
+  @CacheReturn
+  default Handler<AsyncResult<T>> completer() {
+    return ar -> {
+      if (ar.succeeded()) {
+        complete(ar.result());
+      } else {
+        fail(ar.cause());
+      }
+    };
+  }
 
   static FutureFactory factory = ServiceHelper.loadFactory(FutureFactory.class);
 

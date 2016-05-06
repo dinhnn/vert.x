@@ -17,14 +17,13 @@
 package io.vertx.core.http.impl;
 
 import io.netty.handler.codec.http.DefaultHttpHeaders;
-import io.netty.handler.codec.http.HttpResponse;
-import io.netty.handler.codec.http.LastHttpContent;
 import io.vertx.core.Handler;
 import io.vertx.core.MultiMap;
-import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.HttpClientResponse;
+import io.vertx.core.http.HttpFrame;
 import io.vertx.core.http.HttpHeaders;
+import io.vertx.core.http.HttpVersion;
 import io.vertx.core.net.NetSocket;
 
 import java.util.ArrayList;
@@ -41,21 +40,21 @@ import java.util.List;
  */
 public class HttpClientResponseImpl implements HttpClientResponse  {
 
+  private final HttpVersion version;
   private final int statusCode;
   private final String statusMessage;
-  private final HttpClientRequestImpl request;
-  private final Vertx vertx;
-  private final ClientConnection conn;
-  private final HttpResponse response;
+  private final HttpClientRequestBase request;
+  private final HttpClientConnection conn;
+  private final HttpClientStream stream;
 
   private Handler<Buffer> dataHandler;
+  private Handler<HttpFrame> unknownFrameHandler;
   private Handler<Void> endHandler;
   private Handler<Throwable> exceptionHandler;
-  private LastHttpContent trailer;
-  private boolean paused;
-  private Buffer pausedChunk;
   private boolean hasPausedEnd;
-  private LastHttpContent pausedTrailer;
+  private boolean paused;
+  private Buffer pausedLastChunk;
+  private MultiMap pausedTrailers;
   private NetSocket netSocket;
 
   // Track for metrics
@@ -66,13 +65,23 @@ public class HttpClientResponseImpl implements HttpClientResponse  {
   private MultiMap trailers;
   private List<String> cookies;
 
-  HttpClientResponseImpl(Vertx vertx, HttpClientRequestImpl request, ClientConnection conn, HttpResponse response) {
-    this.vertx = vertx;
-    this.statusCode = response.getStatus().code();
-    this.statusMessage = response.getStatus().reasonPhrase();
+  HttpClientResponseImpl(HttpClientRequestBase request, HttpVersion version, HttpClientStream stream, int statusCode, String statusMessage, MultiMap headers) {
+    this.version = version;
+    this.statusCode = statusCode;
+    this.statusMessage = statusMessage;
     this.request = request;
-    this.conn = conn;
-    this.response = response;
+    this.stream = stream;
+    this.conn = stream.connection();
+    this.headers = headers;
+  }
+
+  HttpClientRequestBase request() {
+    return request;
+  }
+
+  @Override
+  public HttpVersion version() {
+    return version;
   }
 
   @Override
@@ -86,10 +95,7 @@ public class HttpClientResponseImpl implements HttpClientResponse  {
   }
 
   @Override
-  public synchronized MultiMap headers() {
-    if (headers == null) {
-      headers = new HeadersAdaptor(response.headers());
-    }
+  public MultiMap headers() {
     return headers;
   }
 
@@ -104,65 +110,79 @@ public class HttpClientResponseImpl implements HttpClientResponse  {
   }
 
   @Override
-  public synchronized MultiMap trailers() {
-    if (trailers == null) {
-      trailers = new HeadersAdaptor(new DefaultHttpHeaders());
+  public MultiMap trailers() {
+    synchronized (conn) {
+      if (trailers == null) {
+        trailers = new HeadersAdaptor(new DefaultHttpHeaders());
+      }
+      return trailers;
     }
-    return trailers;
   }
 
   @Override
   public String getTrailer(String trailerName) {
-    return trailers.get(trailerName);
+    return trailers != null ? trailers.get(trailerName) : null;
   }
 
   @Override
-  public synchronized List<String> cookies() {
-    if (cookies == null) {
-      cookies = new ArrayList<>();
-      cookies.addAll(response.headers().getAll(HttpHeaders.SET_COOKIE));
-      if (trailer != null) {
-        cookies.addAll(trailer.trailingHeaders().getAll(HttpHeaders.SET_COOKIE));
+  public List<String> cookies() {
+    synchronized (conn) {
+      if (cookies == null) {
+        cookies = new ArrayList<>();
+        cookies.addAll(headers().getAll(HttpHeaders.SET_COOKIE));
+        if (trailers != null) {
+          cookies.addAll(trailers.getAll(HttpHeaders.SET_COOKIE));
+        }
       }
+      return cookies;
     }
-    return cookies;
   }
 
   @Override
-  public synchronized HttpClientResponse handler(Handler<Buffer> dataHandler) {
-    this.dataHandler = dataHandler;
-    return this;
-  }
-
-  @Override
-  public synchronized HttpClientResponse endHandler(Handler<Void> endHandler) {
-    this.endHandler = endHandler;
-    return this;
-  }
-
-  @Override
-  public synchronized HttpClientResponse exceptionHandler(Handler<Throwable> exceptionHandler) {
-    this.exceptionHandler = exceptionHandler;
-    return this;
-  }
-
-  @Override
-  public synchronized HttpClientResponse pause() {
-    if (!paused) {
-      paused = true;
-      conn.doPause();
+  public HttpClientResponse handler(Handler<Buffer> dataHandler) {
+    synchronized (conn) {
+      this.dataHandler = dataHandler;
+      return this;
     }
-    return this;
   }
 
   @Override
-  public synchronized HttpClientResponse resume() {
-    if (paused) {
-      paused = false;
-      doResume();
-      conn.doResume();
+  public HttpClientResponse endHandler(Handler<Void> endHandler) {
+    synchronized (conn) {
+      this.endHandler = endHandler;
+      return this;
     }
-    return this;
+  }
+
+  @Override
+  public HttpClientResponse exceptionHandler(Handler<Throwable> exceptionHandler) {
+    synchronized (conn) {
+      this.exceptionHandler = exceptionHandler;
+      return this;
+    }
+  }
+
+  @Override
+  public HttpClientResponse pause() {
+    synchronized (conn) {
+      if (!paused) {
+        paused = true;
+        stream.doPause();
+      }
+      return this;
+    }
+  }
+
+  @Override
+  public HttpClientResponse resume() {
+    synchronized (conn) {
+      if (paused) {
+        paused = false;
+        doResume();
+        stream.doResume();
+      }
+      return this;
+    }
   }
 
   @Override
@@ -173,68 +193,91 @@ public class HttpClientResponseImpl implements HttpClientResponse  {
     return this;
   }
 
+  @Override
+  public HttpClientResponse unknownFrameHandler(Handler<HttpFrame> handler) {
+    synchronized (conn) {
+      unknownFrameHandler = handler;
+      return this;
+    }
+  }
+
   private void doResume() {
     if (hasPausedEnd) {
-      if (pausedChunk != null) {
-        final Buffer theChunk = pausedChunk;
-        conn.getContext().runOnContext(v -> handleChunk(theChunk));
-        pausedChunk = null;
-      }
-      final LastHttpContent theTrailer = pausedTrailer;
-      conn.getContext().runOnContext(v -> handleEnd(theTrailer));
+      final Buffer theChunk = pausedLastChunk;
+      final MultiMap theTrailer = pausedTrailers;
+      stream.getContext().runOnContext(v -> handleEnd(theChunk, theTrailer));
       hasPausedEnd = false;
-      pausedTrailer = null;
+      pausedTrailers = null;
+      pausedLastChunk = null;
     }
   }
 
-  synchronized void handleChunk(Buffer data) {
-    if (paused) {
-      if (pausedChunk == null) {
-        pausedChunk = data.copy();
-      } else {
-        pausedChunk.appendBuffer(data);
+  void handleUnknowFrame(HttpFrame frame) {
+    synchronized (conn) {
+      if (unknownFrameHandler != null) {
+        try {
+          unknownFrameHandler.handle(frame);
+        } catch (Throwable t) {
+          handleException(t);
+        }
       }
-    } else {
+    }
+  }
+
+  void handleChunk(Buffer data) {
+    synchronized (conn) {
       request.dataReceived();
-      if (pausedChunk != null) {
-        data = pausedChunk.appendBuffer(data);
-        pausedChunk = null;
-      }
       bytesRead += data.length();
       if (dataHandler != null) {
-        dataHandler.handle(data);
+        try {
+          dataHandler.handle(data);
+        } catch (Throwable t) {
+          handleException(t);
+        }
       }
     }
   }
 
-  synchronized void handleEnd(LastHttpContent trailer) {
-    conn.reportBytesRead(bytesRead);
-    bytesRead = 0;
-    request.reportResponseEnd(this);
-    if (paused) {
-      hasPausedEnd = true;
-      pausedTrailer = trailer;
-    } else {
-      this.trailer = trailer;
-      trailers = new HeadersAdaptor(trailer.trailingHeaders());
-      if (endHandler != null) {
-        endHandler.handle(null);
+  void handleEnd(Buffer lastChunk, MultiMap trailers) {
+    synchronized (conn) {
+      conn.reportBytesRead(bytesRead);
+      bytesRead = 0;
+      if (paused) {
+        pausedLastChunk = lastChunk;
+        hasPausedEnd = true;
+        pausedTrailers = trailers;
+      } else {
+        if (lastChunk != null) {
+          handleChunk(lastChunk);
+        }
+        this.trailers = trailers;
+        if (endHandler != null) {
+          try {
+            endHandler.handle(null);
+          } catch (Throwable t) {
+            handleException(t);
+          }
+        }
       }
     }
   }
 
-  synchronized void handleException(Throwable e) {
-    if (exceptionHandler != null) {
-      exceptionHandler.handle(e);
+  void handleException(Throwable e) {
+    synchronized (conn) {
+      if (exceptionHandler != null) {
+        exceptionHandler.handle(e);
+      }
     }
   }
 
   @Override
-  public synchronized NetSocket netSocket() {
-    if (netSocket == null) {
-      netSocket = conn.createNetSocket();
+  public NetSocket netSocket() {
+    synchronized (conn) {
+      if (netSocket == null) {
+        netSocket = stream.createNetSocket();
+      }
+      return netSocket;
     }
-    return netSocket;
   }
 
   private static final class BodyHandler implements Handler<Buffer> {

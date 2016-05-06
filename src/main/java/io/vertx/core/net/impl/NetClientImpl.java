@@ -17,12 +17,7 @@
 package io.vertx.core.net.impl;
 
 import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelInitializer;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.ChannelPipeline;
-import io.netty.channel.FixedRecvByteBufAllocator;
+import io.netty.channel.*;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.stream.ChunkedWriteHandler;
@@ -30,19 +25,18 @@ import io.netty.handler.timeout.IdleStateHandler;
 import io.vertx.core.AsyncResult;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
-import io.vertx.core.impl.Closeable;
+import io.vertx.core.Closeable;
 import io.vertx.core.impl.ContextImpl;
 import io.vertx.core.impl.VertxInternal;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
-import io.vertx.core.spi.metrics.Metrics;
-import io.vertx.core.spi.metrics.MetricsProvider;
-import io.vertx.core.spi.metrics.TCPMetrics;
 import io.vertx.core.net.NetClient;
 import io.vertx.core.net.NetClientOptions;
 import io.vertx.core.net.NetSocket;
+import io.vertx.core.spi.metrics.Metrics;
+import io.vertx.core.spi.metrics.MetricsProvider;
+import io.vertx.core.spi.metrics.TCPMetrics;
 
-import java.net.InetSocketAddress;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -137,7 +131,9 @@ public class NetClientImpl implements NetClient, MetricsProvider {
       bootstrap.option(ChannelOption.SO_RCVBUF, options.getReceiveBufferSize());
       bootstrap.option(ChannelOption.RCVBUF_ALLOCATOR, new FixedRecvByteBufAllocator(options.getReceiveBufferSize()));
     }
-    bootstrap.option(ChannelOption.SO_LINGER, options.getSoLinger());
+    if (options.getSoLinger() != -1) {
+      bootstrap.option(ChannelOption.SO_LINGER, options.getSoLinger());
+    }
     if (options.getTrafficClass() != -1) {
       bootstrap.option(ChannelOption.IP_TOS, options.getTrafficClass());
     }
@@ -153,14 +149,14 @@ public class NetClientImpl implements NetClient, MetricsProvider {
     ContextImpl context = vertx.getOrCreateContext();
     sslHelper.validate(vertx);
     Bootstrap bootstrap = new Bootstrap();
-    bootstrap.group(context.eventLoop());
+    bootstrap.group(context.nettyEventLoop());
     bootstrap.channel(NioSocketChannel.class);
     bootstrap.handler(new ChannelInitializer<Channel>() {
       @Override
       protected void initChannel(Channel ch) throws Exception {
         ChannelPipeline pipeline = ch.pipeline();
         if (sslHelper.isSSL()) {
-          SslHandler sslHandler = sslHelper.createSslHandler(vertx, true);
+          SslHandler sslHandler = sslHelper.createSslHandler(vertx, host, port);
           pipeline.addLast("ssl", sslHandler);
         }
         if (sslHelper.isSSL()) {
@@ -170,16 +166,17 @@ public class NetClientImpl implements NetClient, MetricsProvider {
         if (options.getIdleTimeout() > 0) {
           pipeline.addLast("idle", new IdleStateHandler(0, 0, options.getIdleTimeout()));
         }
-        pipeline.addLast("handler", new VertxNetHandler(socketMap));
+        pipeline.addLast("handler", new VertxNetHandler(ch, socketMap));
       }
     });
 
     applyConnectionOptions(bootstrap);
-    ChannelFuture future = bootstrap.connect(new InetSocketAddress(host, port));
-    future.addListener((ChannelFuture channelFuture) -> {
-      Channel ch = channelFuture.channel();
+    AsyncResolveBindConnectHelper<ChannelFuture> future = AsyncResolveBindConnectHelper.doConnect(vertx, port, host, bootstrap);
+    future.addListener(res -> {
 
-      if (channelFuture.isSuccess()) {
+      if (res.succeeded()) {
+
+        Channel ch = res.result().channel();
 
         if (sslHelper.isSSL()) {
           // TCP connected, so now we must do the SSL handshake
@@ -208,7 +205,7 @@ public class NetClientImpl implements NetClient, MetricsProvider {
             );
           });
         } else {
-          failed(context, ch, channelFuture.cause(), connectHandler);
+          failed(context, null, res.cause(), connectHandler);
         }
       }
     });
@@ -218,15 +215,19 @@ public class NetClientImpl implements NetClient, MetricsProvider {
     // Need to set context before constructor is called as writehandler registration needs this
     ContextImpl.setContext(context);
     NetSocketImpl sock = new NetSocketImpl(vertx, ch, context, sslHelper, true, metrics, null);
+    VertxNetHandler handler = ch.pipeline().get(VertxNetHandler.class);
+    handler.conn = sock;
     socketMap.put(ch, sock);
     context.executeFromIO(() -> {
-      sock.setMetric(metrics.connected(sock.remoteAddress()));
+      sock.setMetric(metrics.connected(sock.remoteAddress(), sock.remoteName()));
       connectHandler.handle(Future.succeededFuture(sock));
     });
   }
 
   private void failed(ContextImpl context, Channel ch, Throwable t, Handler<AsyncResult<NetSocket>> connectHandler) {
-    ch.close();
+    if (ch != null) {
+      ch.close();
+    }
     context.executeFromIO(() -> doFailed(connectHandler, t));
   }
 

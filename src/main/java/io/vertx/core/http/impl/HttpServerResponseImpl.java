@@ -20,19 +20,22 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
 import io.netty.handler.codec.http.*;
+import io.netty.handler.codec.http.HttpVersion;
 import io.vertx.core.AsyncResult;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
 import io.vertx.core.MultiMap;
 import io.vertx.core.buffer.Buffer;
+import io.vertx.core.http.*;
 import io.vertx.core.http.HttpHeaders;
-import io.vertx.core.http.HttpServerResponse;
+import io.vertx.core.http.HttpMethod;
 import io.vertx.core.impl.ContextImpl;
 import io.vertx.core.impl.VertxInternal;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 
@@ -63,7 +66,7 @@ public class HttpServerResponseImpl implements HttpServerResponse {
   private Handler<Void> drainHandler;
   private Handler<Throwable> exceptionHandler;
   private Handler<Void> closeHandler;
-  private Handler<Future<Void>> headersEndHandler;
+  private Handler<Void> headersEndHandler;
   private Handler<Void> bodyEndHandler;
   private boolean chunked;
   private boolean closed;
@@ -72,6 +75,7 @@ public class HttpServerResponseImpl implements HttpServerResponse {
   private LastHttpContent trailing;
   private MultiMap trailers;
   private String statusMessage;
+  private long bytesWritten;
 
   HttpServerResponseImpl(final VertxInternal vertx, ServerConnection conn, HttpRequest request) {
   	this.vertx = vertx;
@@ -121,8 +125,8 @@ public class HttpServerResponseImpl implements HttpServerResponse {
   @Override
   public HttpServerResponse setStatusMessage(String statusMessage) {
     synchronized (conn) {
-      this.statusMessage = statusMessage != null ? (statusMessage.replace("\r", "\\r").replace("\n", "\\n")) : null;
-      this.response.setStatus(new HttpResponseStatus(response.getStatus().code(), this.statusMessage));
+      this.statusMessage = statusMessage;
+      this.response.setStatus(new HttpResponseStatus(response.getStatus().code(), statusMessage));
       return this;
     }
   }
@@ -266,17 +270,17 @@ public class HttpServerResponseImpl implements HttpServerResponse {
   @Override
   public HttpServerResponseImpl write(Buffer chunk) {
     ByteBuf buf = chunk.getByteBuf();
-    return write(buf, null);
+    return write(buf);
   }
 
   @Override
   public HttpServerResponseImpl write(String chunk, String enc) {
-    return write(Buffer.buffer(chunk, enc).getByteBuf(),  null);
+    return write(Buffer.buffer(chunk, enc).getByteBuf());
   }
 
   @Override
   public HttpServerResponseImpl write(String chunk) {
-    return write(Buffer.buffer(chunk).getByteBuf(), null);
+    return write(Buffer.buffer(chunk).getByteBuf());
   }
 
   @Override
@@ -361,7 +365,14 @@ public class HttpServerResponseImpl implements HttpServerResponse {
   }
 
   @Override
-  public HttpServerResponse headersEndHandler(Handler<Future<Void>> handler) {
+  public long bytesWritten() {
+    synchronized (conn) {
+      return bytesWritten;
+    }
+  }
+
+  @Override
+  public HttpServerResponse headersEndHandler(Handler<Void> handler) {
     synchronized (conn) {
       this.headersEndHandler = handler;
       return this;
@@ -378,19 +389,18 @@ public class HttpServerResponseImpl implements HttpServerResponse {
 
   private void end0(ByteBuf data) {
     checkWritten();
+    bytesWritten += data.readableBytes();
     if (!headWritten) {
       // if the head was not written yet we can write out everything in one go
       // which is cheaper.
-      prepareHeaders(() -> {
-        FullHttpResponse resp;
-        if (trailing != null) {
-          resp = new AssembledFullHttpResponse(response, data, trailing.trailingHeaders(), trailing.getDecoderResult());
-        }  else {
-          resp = new AssembledFullHttpResponse(response, data);
-        }
-        channelFuture = conn.writeToChannel(resp);
-        headWritten = true;
-      });
+      prepareHeaders();
+      FullHttpResponse resp;
+      if (trailing != null) {
+        resp = new AssembledFullHttpResponse(response, data, trailing.trailingHeaders(), trailing.getDecoderResult());
+      }  else {
+        resp = new AssembledFullHttpResponse(response, data);
+      }
+      channelFuture = conn.writeToChannel(resp);
     } else {
       if (!data.isReadable()) {
         if (trailing == null) {
@@ -427,69 +437,76 @@ public class HttpServerResponseImpl implements HttpServerResponse {
       }
       checkWritten();
       File file = vertx.resolveFile(filename);
+
+      if (!file.exists()) {
+        if (resultHandler != null) {
+          ContextImpl ctx = vertx.getOrCreateContext();
+          ctx.runOnContext((v) -> resultHandler.handle(Future.failedFuture(new FileNotFoundException())));
+        } else {
+          log.error("File not found: " + filename);
+        }
+        return;
+      }
+
       long contentLength = Math.min(length, file.length() - offset);
+      bytesWritten = contentLength;
       if (!contentLengthSet()) {
         putHeader(HttpHeaders.CONTENT_LENGTH, String.valueOf(contentLength));
       }
       if (!contentTypeSet()) {
-        int li = filename.lastIndexOf('.');
-        if (li != -1 && li != filename.length() - 1) {
-          String ext = filename.substring(li + 1, filename.length());
-          String contentType = MimeMapping.getMimeTypeForExtension(ext);
-          if (contentType != null) {
-            putHeader(HttpHeaders.CONTENT_TYPE, contentType);
-          }
+        String contentType = MimeMapping.getMimeTypeForFilename(filename);
+        if (contentType != null) {
+          putHeader(HttpHeaders.CONTENT_TYPE, contentType);
         }
       }
-      prepareHeaders(() -> {
+      prepareHeaders();
 
-        RandomAccessFile raf = null;
+      RandomAccessFile raf = null;
+      try {
+        raf = new RandomAccessFile(file, "r");
+        conn.queueForWrite(response);
+        conn.sendFile(raf, Math.min(offset, file.length()), contentLength);
+      } catch (IOException e) {
         try {
-          raf = new RandomAccessFile(file, "r");
-          conn.queueForWrite(response);
-          conn.sendFile(raf, Math.min(offset, file.length()), contentLength);
-        } catch (IOException e) {
-          try {
-            if (raf != null) {
-              raf.close();
-            }
-          } catch (IOException ignore) {
+          if (raf != null) {
+            raf.close();
           }
-          if (resultHandler != null) {
-            ContextImpl ctx = vertx.getOrCreateContext();
-            ctx.runOnContext((v) -> resultHandler.handle(Future.failedFuture(e)));
-          } else {
-            log.error("Failed to send file", e);
-          }
-          return;
+        } catch (IOException ignore) {
         }
-
-        // write an empty last content to let the http encoder know the response is complete
-        channelFuture = conn.writeToChannel(LastHttpContent.EMPTY_LAST_CONTENT);
-        headWritten = written = true;
-
         if (resultHandler != null) {
           ContextImpl ctx = vertx.getOrCreateContext();
-          channelFuture.addListener(future -> {
-            AsyncResult<Void> res;
-            if (future.isSuccess()) {
-              res = Future.succeededFuture();
-            } else {
-              res = Future.failedFuture(future.cause());
-            }
-            ctx.runOnContext((v) -> resultHandler.handle(res));
-          });
+          ctx.runOnContext((v) -> resultHandler.handle(Future.failedFuture(e)));
+        } else {
+          log.error("Failed to send file", e);
         }
+        return;
+      }
 
-        if (!keepAlive) {
-          closeConnAfterWrite();
-        }
-        conn.responseComplete();
+      // write an empty last content to let the http encoder know the response is complete
+      channelFuture = conn.writeToChannel(LastHttpContent.EMPTY_LAST_CONTENT);
+      written = true;
 
-        if (bodyEndHandler != null) {
-          bodyEndHandler.handle(null);
-        }
-      });
+      if (resultHandler != null) {
+        ContextImpl ctx = vertx.getOrCreateContext();
+        channelFuture.addListener(future -> {
+          AsyncResult<Void> res;
+          if (future.isSuccess()) {
+            res = Future.succeededFuture();
+          } else {
+            res = Future.failedFuture(future.cause());
+          }
+          ctx.runOnContext((v) -> resultHandler.handle(res));
+        });
+      }
+
+      if (!keepAlive) {
+        closeConnAfterWrite();
+      }
+      conn.responseComplete();
+
+      if (bodyEndHandler != null) {
+        bodyEndHandler.handle(null);
+      }
     }
   }
 
@@ -543,7 +560,7 @@ public class HttpServerResponseImpl implements HttpServerResponse {
     }
   }
 
-  private void prepareHeaders(Runnable after) {
+  private void prepareHeaders() {
     if (version == HttpVersion.HTTP_1_0 && keepAlive) {
       response.headers().set(HttpHeaders.CONNECTION, HttpHeaders.KEEP_ALIVE);
     } else if (version == HttpVersion.HTTP_1_1 && !keepAlive) {
@@ -554,27 +571,13 @@ public class HttpServerResponseImpl implements HttpServerResponse {
     } else if (keepAlive && !contentLengthSet()) {
       response.headers().set(HttpHeaders.CONTENT_LENGTH, "0");
     }
-
     if (headersEndHandler != null) {
-      Future<Void> fut = Future.future();
-      fut.setHandler(res -> {
-        if (res.succeeded()) {
-          after.run();
-        } else {
-          if (exceptionHandler != null) {
-            exceptionHandler.handle(res.cause());
-          } else {
-            log.error("Failure in headers end handler", res.cause());
-          }
-        }
-      });
-      headersEndHandler.handle(fut);
-    } else {
-      after.run();
+      headersEndHandler.handle(null);
     }
+    headWritten = true;
   }
 
-  private HttpServerResponseImpl write(ByteBuf chunk, Handler<AsyncResult<Void>> completionHandler) {
+  private HttpServerResponseImpl write(ByteBuf chunk) {
     synchronized (conn) {
       checkWritten();
       if (!headWritten && version != HttpVersion.HTTP_1_0 && !chunked && !contentLengthSet()) {
@@ -582,17 +585,50 @@ public class HttpServerResponseImpl implements HttpServerResponse {
           + "body BEFORE sending any data if you are not using HTTP chunked encoding.");
       }
 
+      bytesWritten += chunk.readableBytes();
       if (!headWritten) {
-        prepareHeaders(() -> {
-          channelFuture = conn.writeToChannel(new AssembledHttpResponse(response, chunk));
-          headWritten = true;
-        });
+        prepareHeaders();
+        channelFuture = conn.writeToChannel(new AssembledHttpResponse(response, chunk));
       } else {
         channelFuture = conn.writeToChannel(new DefaultHttpContent(chunk));
       }
 
-      conn.addFuture(completionHandler, channelFuture);
       return this;
     }
+  }
+
+  @Override
+  public int streamId() {
+    return -1;
+  }
+
+  @Override
+  public void reset(long code) {
+  }
+
+  @Override
+  public HttpServerResponse push(HttpMethod method, String path, MultiMap headers, Handler<AsyncResult<HttpServerResponse>> handler) {
+    return push(method, null, path, headers, handler);
+  }
+
+  @Override
+  public HttpServerResponse push(io.vertx.core.http.HttpMethod method, String host, String path, Handler<AsyncResult<HttpServerResponse>> handler) {
+    return push(method, path, handler);
+  }
+
+  @Override
+  public HttpServerResponse push(HttpMethod method, String path, Handler<AsyncResult<HttpServerResponse>> handler) {
+    return push(method, path, null, null, handler);
+  }
+
+  @Override
+  public HttpServerResponse push(HttpMethod method, String host, String path, MultiMap headers, Handler<AsyncResult<HttpServerResponse>> handler) {
+    handler.handle(Future.failedFuture("Push promise is only supported with HTTP2"));
+    return this;
+  }
+
+  @Override
+  public HttpServerResponse writeFrame(int type, int flags, Buffer payload) {
+    return this;
   }
 }
