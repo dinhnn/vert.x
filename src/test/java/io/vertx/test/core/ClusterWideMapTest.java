@@ -17,6 +17,7 @@
 package io.vertx.test.core;
 
 import io.vertx.core.Vertx;
+import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.spi.cluster.ClusterManager;
@@ -111,6 +112,11 @@ public class ClusterWideMapTest extends VertxTestBase {
   }
 
   @Test
+  public void testMapPutGetBuffer() {
+    testMapPutGet(Buffer.buffer("foo"), Buffer.buffer("bar"));
+  }
+
+  @Test
   public void testMapPutIfAbsentGetByte() {
     testMapPutIfAbsentGet((byte)1, (byte)2);
   }
@@ -170,6 +176,10 @@ public class ClusterWideMapTest extends VertxTestBase {
     testMapPutIfAbsentGet(new SomeSerializableObject("bar"), new SomeSerializableObject("bar"));
   }
 
+  @Test
+  public void testMapPutIfAbsentGetBuffer() {
+    testMapPutIfAbsentGet(Buffer.buffer("bar"), Buffer.buffer("bar"));
+  }
 
 
   @Test
@@ -230,6 +240,11 @@ public class ClusterWideMapTest extends VertxTestBase {
   @Test
   public void testMapRemoveSerializableObject() {
     testMapRemove(new SomeSerializableObject("bar"), new SomeSerializableObject("bar"));
+  }
+
+  @Test
+  public void testMapRemoveBuffer() {
+    testMapRemove(Buffer.buffer("bar"), Buffer.buffer("bar"));
   }
 
   @Test
@@ -295,6 +310,11 @@ public class ClusterWideMapTest extends VertxTestBase {
   }
 
   @Test
+  public void testMapRemoveIfPresentBuffer() {
+    testMapRemoveIfPresent(Buffer.buffer("foo"), Buffer.buffer("bar"), Buffer.buffer("quux"));
+  }
+
+  @Test
   public void testMapReplaceByte() {
     testMapReplace((byte)1, (byte)2, (byte)3);
   }
@@ -354,6 +374,11 @@ public class ClusterWideMapTest extends VertxTestBase {
   @Test
   public void testMapReplaceSerializableObject() {
     testMapReplace(new SomeSerializableObject("foo"), new SomeSerializableObject("bar"), new SomeSerializableObject("quux"));
+  }
+  
+  @Test
+  public void testMapReplaceBuffer() {
+    testMapReplace(Buffer.buffer("foo"), Buffer.buffer("bar"), Buffer.buffer("quux"));
   }
 
   @Test
@@ -418,6 +443,12 @@ public class ClusterWideMapTest extends VertxTestBase {
     testMapReplaceIfPresent(new SomeSerializableObject("foo"), new SomeSerializableObject("bar"), new SomeSerializableObject("quux"));
   }
 
+  @Test
+  public void testMapReplaceIfPresentBuffer() {
+    testMapReplaceIfPresent(Buffer.buffer("foo"), Buffer.buffer("bar"), Buffer.buffer("quux"));
+  }
+
+  
   @Test
   public void testGetMapWithNullName() throws Exception {
     assertNullPointerException(() -> getVertx().sharedData().<String, String>getClusterWideMap(null, ar -> {}));
